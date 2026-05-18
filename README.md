@@ -10,7 +10,7 @@ It helps farmers and researchers make informed decisions about crop management a
 Agri-Vision uses deep learning and computer vision techniques to:
 
 - Detect cotton growth phases  
-- Identify crop health issues and diseases  
+- Identify cotton crop diseases  
 - Provide confidence scores and actionable recommendations  
 - Offer both a web interface and a REST API  
 
@@ -36,8 +36,74 @@ Agri-Vision uses deep learning and computer vision techniques to:
 - OpenCV  
 - HTML/CSS  
 - JavaScript  
+- Ultralytics
+- Pytorch
 
 ---
+
+## Dataset Information
+Both the datasets related to the model training of Growth stage prediction model, crop disease classification model were taken from roboflow
+
+Link to the dataset used for training growth stage prediction model- https://universe.roboflow.com/p-project-ebvkg/cotton-boll-growth-detection/dataset/5
+*The above dataset is also having appropriate labels for YOLO model training
+
+Link to the dataset used for training crop disease classification model- https://universe.roboflow.com/deep-learning-nygzt/cotton-crop-dieases/browse?queryText=&pageSize=50&startingIndex=0&browseQuery=true
+
+
+## Growth Phases Detected
+
+- Cotton Blossom
+- Cotton Bud
+- Early Boll
+- Matured Cotton Boll
+- Split Cotton Boll
+
+---
+
+## Health Issues Identified
+
+- Healthy
+- Aphids
+- Army Worm
+- Bacterial Blight
+- Cotton Boll Rot
+- Green Cotton Boll
+- Powdery mildew
+- Target spot
+
+---
+
+# Model Information
+## Growth Stage Prediction Model
+Model used- YOLOv8
+Parameters- ~3M
+Layers- 73
+
+## Crop Disease Classification Model
+Model Used- Resnet50
+Parameters- 25.6M
+
+
+# Model Results
+checkout snapshots, training curves at results/
+## Metrics for YOLOv8(Growth stage prediction)
+mAP50- 60.06%
+mAP95- 34.8%
+R- 53.8%
+P- 62.7%
+Inference Time- 3.3ms
+
+
+## Metrics for Resnet50(Cotton crop disease classification)
+Accuracy- 99.83%
+Precision- 99.83%
+Recall- 99.83%
+F1 Score- 99.83%
+ROC AUC- 99.98%
+
+
+---
+
 
 ## 📁 Project Structure
 
@@ -170,24 +236,6 @@ A GitHub Actions workflow is fully set up in [.github/workflows/tests.yml](file:
 
 
 
-## 📊 Growth Phases Detected
-
-- 🌱 **Vegetative / Budding** – Early growth stage  
-- 🌸 **Flowering** – Flower development stage  
-- 🍂 **Bursting (Ripped)** – Cotton bolls opening  
-- ✅ **Harvest Ready** – Optimal harvest time  
-
----
-
-## 🩺 Health Issues Identified
-
-- ✅ **Healthy** – No issues detected  
-- 🐛 **Pink Bollworm Damage** – Pest infestation detected  
-- 🎨 **Discoloration** – Nutrient or water deficiency  
-- ⚠️ **Other Damage** – Miscellaneous crop issues  
-
----
-
 # 🛠️ API Reference
 
 ## Analyze Image (POST Request)
@@ -229,14 +277,7 @@ curl -X POST -F "file=@cotton_image.jpg" http://localhost:5000/api/analyze
 
 ---
 
-# 📈 Model Performance
 
-- ✅ Accuracy: **~85–90%** on test data  
-- ⚡ Processing Time: **< 2 seconds per image**  
-- 🖼️ Supported Formats: **JPG, PNG, JPEG**  
-- 📦 Maximum File Size: **10MB**
-
----
 
 # 🚀 Future Enhancements
 
@@ -307,6 +348,8 @@ Special thanks to:
 - OpenCV  
 - Open-source contributors  
 - Agricultural research datasets  
+- Ultralytics
+- PyTorch
 
 ---
 
