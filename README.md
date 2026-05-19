@@ -30,14 +30,14 @@ Agri-Vision uses deep learning and computer vision techniques to:
 
 ## 🛠️ Tech Stack
 
-- Python  
-- Flask  
-- TensorFlow  
-- OpenCV  
-- HTML/CSS  
-- JavaScript  
-- Ultralytics
-- Pytorch
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-000000?style=flat-square&logo=flask&logoColor=white)
+![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat-square&logo=html5&logoColor=white)
+![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=flat-square&logo=css3&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
+![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?style=flat-square&logo=opencv&logoColor=white)
+![Ultralytics](https://img.shields.io/badge/Ultralytics-111827?style=flat-square&logo=yolo&logoColor=white)
 
 ---
 
