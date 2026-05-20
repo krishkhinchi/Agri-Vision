@@ -271,28 +271,34 @@ def analyze_image(image):
     # First detect cotton growth stage
     growth = infer_growth_stage(image)
 
-    # Stop analysis if no cotton growth stage is detected
-    if growth["main_class"] is None:
-        return {
-            "error": "No cotton plant detected",
-            "disease": None,
-            "growth": growth,
-            "recommendations": [
-                "Please upload a valid cotton crop image."
-            ]
-        }
-
-    # Continue disease analysis only for cotton crops
+    # Continue disease analysis even when crop growth stage is not confidently found.
+    # This makes deployed sites more resilient when YOLO detection is unavailable or misses an image.
     disease = infer_disease(image)
 
     # Generate recommendations
     recs = generate_recommendations(disease, growth)
 
-    return {
+    result = {
         "disease": disease,
         "growth": growth,
         "recommendations": recs,
     }
+
+    if growth["main_class"] is None:
+        if yolo_model is None:
+            fallback_reason = "Growth stage model unavailable in this deployment."
+        else:
+            fallback_reason = "Cotton growth stage could not be detected from the uploaded image."
+
+        result["warnings"] = [
+            fallback_reason,
+            "Disease analysis is still provided, but comparison may be less reliable without a confirmed cotton crop detection."
+        ]
+
+        # If the uploaded image clearly has no cotton crop, keep the analysis path but let the UI surface a warning.
+        # Relevance validation is handled separately by the comparison route if no meaningful crop information is present.
+
+    return result
 
 # UTILITY: For image bounding box rendering in the frontend, also supply dimensions
 def encode_image_for_display(image):
@@ -315,8 +321,16 @@ def read_uploaded_image(file_storage):
     return safe_filename, image, cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 def build_comparison_result(old_results, new_results):
-    old_score = float(old_results["disease"].get("health_score", 0.0))
-    new_score = float(new_results["disease"].get("health_score", 0.0))
+    if not isinstance(old_results, dict) or not isinstance(new_results, dict):
+        raise ValueError("Comparison analysis did not produce valid result objects.")
+
+    old_disease = old_results.get("disease")
+    new_disease = new_results.get("disease")
+    if old_disease is None or new_disease is None:
+        raise ValueError("Unable to compare the provided images because one or both images did not contain a valid cotton crop analysis.")
+
+    old_score = float(old_disease.get("health_score", 0.0))
+    new_score = float(new_disease.get("health_score", 0.0))
     change = new_score - old_score
     abs_change = abs(change)
 
@@ -348,15 +362,15 @@ def build_comparison_result(old_results, new_results):
         headline = "Crop health remained stable"
         recommendation = "Maintain the current crop care routine and compare again after the next treatment or irrigation cycle."
 
-    old_disease = old_results["disease"]["predicted_class"]
-    new_disease = new_results["disease"]["predicted_class"]
-    disease_reduced = old_disease != "Healthy" and new_disease == "Healthy"
-    disease_changed = old_disease != new_disease
+    old_predicted = old_disease.get("predicted_class", "Unknown")
+    new_predicted = new_disease.get("predicted_class", "Unknown")
+    disease_reduced = old_predicted != "Healthy" and new_predicted == "Healthy"
+    disease_changed = old_predicted != new_predicted
 
     summary = [
         headline,
         "Disease spread reduced" if disease_reduced else (
-            f"Disease signal shifted from {old_disease} to {new_disease}" if disease_changed else f"Disease signal remains {new_disease}"
+            f"Disease signal shifted from {old_predicted} to {new_predicted}" if disease_changed else f"Disease signal remains {new_predicted}"
         ),
         recommendation,
     ]
@@ -408,6 +422,8 @@ def analyze():
             compressed_rgb = resize_image(image_rgb, MAX_INFERENCE_DIMENSION)
             image_b64 = encode_image_for_display(image)
             results = analyze_image(compressed_rgb)
+            if results.get("error"):
+                raise ValueError(results["error"])
             # Render UI, pass bounding boxes for JS drawing, raw json, etc
             return render_template(
                 "results.html",
@@ -426,6 +442,12 @@ def analyze():
 
 @app.route('/comparison', methods=['GET', 'POST'])
 def comparison():
+    error_message = None
+    old_filename = None
+    new_filename = None
+    old_image = None
+    new_image = None
+
     if request.method == 'POST':
         required_files = {
             "last_week_image": "Last Week Field Image",
@@ -450,6 +472,22 @@ def comparison():
 
             old_results = analyze_image(old_rgb)
             new_results = analyze_image(new_rgb)
+
+            if old_results.get("disease") is None or new_results.get("disease") is None:
+                error_message = "Unable to analyze one or both uploaded images. Please upload valid field images and try again."
+            elif (old_results.get("warnings") and new_results.get("warnings") and yolo_model is not None):
+                error_message = "Unable to verify cotton crop in both images. Please upload clearer field photos with visible plants and try again."
+
+            if error_message:
+                return render_template(
+                    "comparison.html",
+                    error_message=error_message,
+                    old_filename=old_filename,
+                    new_filename=new_filename,
+                    old_image_b64=encode_image_for_display(old_image),
+                    new_image_b64=encode_image_for_display(new_image),
+                )
+
             comparison_result = build_comparison_result(old_results, new_results)
 
             return render_template(
@@ -465,8 +503,15 @@ def comparison():
             )
         except Exception as e:
             logger.error(f"Comparison analysis error: {e}")
-            flash(f'Error during field comparison: {str(e)}', 'error')
-            return redirect(request.url)
+            error_message = "Unable to compare field images right now. Please try again with clearer crop photos."
+            return render_template(
+                "comparison.html",
+                error_message=error_message,
+                old_filename=old_filename,
+                new_filename=new_filename,
+                old_image_b64=encode_image_for_display(old_image) if old_image is not None else None,
+                new_image_b64=encode_image_for_display(new_image) if new_image is not None else None,
+            )
 
     return render_template("comparison.html")
 

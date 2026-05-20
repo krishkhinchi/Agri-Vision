@@ -75,6 +75,19 @@ def test_infer_growth_stage_fallback(monkeypatch):
     assert res["confidence"] == 0.0
     assert len(res["boxes"]) == 0
 
+
+def test_analyze_image_without_growth_detection(monkeypatch):
+    """Analyze image should still return disease analysis when growth stage detection is missing."""
+    monkeypatch.setattr(app, "yolo_model", None)
+    dummy_img = np.zeros((100, 100, 3), dtype=np.uint8)
+    result = app.analyze_image(dummy_img)
+    assert "disease" in result
+    assert result["disease"] is not None
+    assert result["growth"]["main_class"] is None
+    assert "warnings" in result
+    assert any("Growth stage model unavailable" in warning for warning in result["warnings"])
+
+
 def test_infer_growth_stage_active(monkeypatch):
     """Test growth stage inference with active/mocked YOLO model."""
     monkeypatch.setattr(app, "yolo_model", MockYOLOModel())
@@ -251,6 +264,74 @@ def test_post_comparison_valid(client, monkeypatch):
     assert b"AI RECOMMENDATION" in resp.data
     assert b"Old Prediction" in resp.data
     assert b"New Prediction" in resp.data
+
+
+def test_post_comparison_invalid_crop_image(client, monkeypatch):
+    """POST /comparison should render a friendly error when image analysis fails."""
+    def mock_analyze_image(_image):
+        return {"error": "No cotton plant detected", "disease": None, "growth": {"main_class": None}}
+
+    monkeypatch.setattr(app, "analyze_image", mock_analyze_image)
+
+    image_one = io.BytesIO()
+    Image.new('RGB', (80, 80), color='green').save(image_one, format='PNG')
+    image_one.seek(0)
+    image_two = io.BytesIO()
+    Image.new('RGB', (80, 80), color='darkgreen').save(image_two, format='PNG')
+    image_two.seek(0)
+
+    data = {
+        "last_week_image": (image_one, "last_week.png"),
+        "current_week_image": (image_two, "current_week.png"),
+    }
+    resp = client.post("/comparison", data=data, content_type="multipart/form-data")
+    assert resp.status_code == 200
+    # UI now shows a friendly message instead of raw backend text
+    assert b"Unable to compare images" in resp.data or b"Unable to verify cotton crop" in resp.data
+
+
+def test_post_comparison_fallback_when_both_images_no_growth(client, monkeypatch):
+    """POST /comparison should show a friendly deployment fallback message when both images fail growth detection."""
+    def mock_analyze_image(_image):
+        return {
+            "disease": {
+                "predicted_class": "Aphids",
+                "predicted_class_idx": 0,
+                "confidence": 0.5,
+                "all_confidences": {},
+                "health_score": 38.0,
+                "raw": [],
+            },
+            "growth": {
+                "main_class": None,
+                "main_class_idx": None,
+                "confidence": 0.0,
+                "boxes": [],
+                "raw": [],
+            },
+            "recommendations": ["Please upload a valid cotton crop image."],
+            "warnings": ["Cotton growth stage could not be detected from the uploaded image."]
+        }
+
+    monkeypatch.setattr(app, "analyze_image", mock_analyze_image)
+    monkeypatch.setattr(app, "yolo_model", object())
+
+    image_one = io.BytesIO()
+    Image.new('RGB', (80, 80), color='green').save(image_one, format='PNG')
+    image_one.seek(0)
+    image_two = io.BytesIO()
+    Image.new('RGB', (80, 80), color='darkgreen').save(image_two, format='PNG')
+    image_two.seek(0)
+
+    data = {
+        "last_week_image": (image_one, "last_week.png"),
+        "current_week_image": (image_two, "current_week.png"),
+    }
+    resp = client.post("/comparison", data=data, content_type="multipart/form-data")
+    assert resp.status_code == 200
+    assert b"Unable to verify cotton crop in both images" in resp.data
+    assert b"clearer field photos" in resp.data
+
 
 def test_post_comparison_missing_file(client):
     """POST /comparison with a missing image should redirect with validation error."""
