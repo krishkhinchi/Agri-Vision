@@ -1342,6 +1342,77 @@ body {
     color: var(--deep-forest);
 }
 
+
+/* =========================================================
+   Enhanced Results Page Spacing & Visual Hierarchy
+   Improves readability, section separation, and layout flow
+========================================================= */
+
+.results-card {
+    padding: 2.5rem;
+    gap: 2rem;
+}
+
+.result-card {
+    margin-top: 2rem;
+    padding: 2rem;
+    border-radius: 24px;
+}
+
+.results-section-title {
+    margin-bottom: 1.4rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.results-list li {
+    margin-bottom: 1rem;
+    line-height: 1.8;
+}
+
+.results-table {
+    margin-top: 1.5rem;
+    overflow: hidden;
+    border-radius: 18px;
+}
+
+.results-table th,
+.results-table td {
+    padding: 1rem 1.2rem;
+}
+
+.results-footer {
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.results-details {
+    margin-top: 2rem;
+}
+
+.results-pre {
+    padding: 1.5rem;
+    border-radius: 16px;
+    line-height: 1.6;
+}
+
+/* Better spacing for mobile devices */
+@media (max-width: 768px) {
+
+    .results-card {
+        padding: 1.4rem;
+    }
+
+    .result-card {
+        padding: 1.4rem;
+    }
+
+    .results-section-title {
+        font-size: 1.1rem;
+    }
+}
+
 /* Compact Footer */
 .footer {
     background: var(--footer-bg);
