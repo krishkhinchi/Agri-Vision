@@ -126,6 +126,7 @@ function useMyLocation() {
             status.style.color = '#28a745';
             btn.textContent = '📍 Location Set';
             btn.style.background = '#28a745';
+            btn.disabled = false;
         },
         function(err) {
             status.textContent = '⚠️ Could not get GPS: ' + err.message + '. Try typing your city instead.';
@@ -133,7 +134,11 @@ function useMyLocation() {
             btn.textContent = '📍 Use My Location';
             btn.disabled = false;
         },
-        { timeout: 8000 }
+        {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0,
+        }
     );
 }
 

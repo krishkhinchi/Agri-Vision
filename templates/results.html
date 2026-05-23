@@ -1,218 +1,173 @@
-{% extends "index.html" %} {% block content %} {% set disease =
-results.disease|default({}) %} {% set growth = results.growth|default({}) %} {%
-set disease_confidences = disease.all_confidences|default({}) %} {% set
-growth_boxes = growth.boxes|default([]) %}
+{% extends "index.html" %}
+{% block content %}
 
+{% extends "index.html" %}
+{% block content %}
 
-<section class="main-content">
-    <div class="container" style="padding-bottom: 4rem;">
-
-        <div class="glass-card reveal reveal-fade-up results-card">
-            <div class="section-header" style="margin-bottom: 1.5rem;">
-                <h1 class="results-main-title"></h1>
-                    <i class="fas fa-robot"></i> Analysis Results
-                </h1>
-                <p class="results-subtitle">
-                    Your crop image was analyzed using deep learning models for disease detection and growth stage recognition.
-                </p>
-            </div>
-            {% if image_b64 %}
-            <div class="result-img-container">
-                <img id="result-img" alt="Analyzed Crop Image"
-                     src="data:image/jpeg;base64,{{ image_b64 }}"
-                     class="result-img">
-                <svg id="bbox-svg"
-                     class="result-svg"
-                     width="410" height="{{ (img_shape.height / img_shape.width * 410)|int }}"></svg>
-            </div>
-            {% endif %}
-
-            <div class="result-card">
-            <h2 class="results-section-title">
-                <i class="fas fa-stethoscope"></i> Disease Classification (ResNet50)
-            </h2>
-            <ul class="results-list">
-                <li>
-                    <b>Predicted Class:</b>
-                    {{ disease.predicted_class|default("Unknown") }}
-                    {% if disease.confidence is defined and disease.confidence is not none %}
-                    <span class="badge badge-confidence" style="
-                        background: linear-gradient(135deg, #17a2b8 0%, #117a8b 100%);
-                        color: white;
-                        padding: 0.25rem 0.6rem;
-                        font-size: 0.8rem;
-                        font-weight: 600;
-                        border-radius: 50px;
-                        margin-left: 0.5rem;
-                        display: inline-block;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    ">
-                        <i class="fas fa-circle-check"></i> {{ (disease.confidence * 100)|round(1) }}% Confidence
-                    </span>
-                    {% endif %}
-                </li>
-                <li>
-                    <b>Health Score:</b>
-                    {% set score = disease.health_score|default(0)|float %}{{ score|int if score == score|int else score }}%
-
-                    <div class="health-bar">
-                        <div class="health-fill"
-                            style="width: {{ disease.health_score|default(0)|float|round(0) }}%;">
-                        </div>
-                    </div>
-
-                </li>
-
-            <table class="results-table reveal-stagger" style="width: 100%;">
-                <tr class="reveal reveal-fade-in">
-                    <th>Disease Class</th>
-                    <th>Probability</th>
-                </tr>
-                {% for cname, prob in disease_confidences.items() %}
-                <tr class="reveal reveal-fade-in">
-                    <td>{{ cname }}</td>
-                    <td>{{ "%.2f"|format(prob|default(0)|float) }}</td>
-                </tr>
-                {% endfor %}
-            </table>
-            </div>
-
-            {% set disease_info = results.disease_info|default({}) %}
-            <div class="result-card">
-                <h2 class="results-section-title">
-                    <i class="fas fa-leaf"></i> Healthy vs Diseased Leaf Comparison
-                </h2>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
-                    <div style="text-align: center;">
-                        <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">Healthy Reference</p>
-                        <img src="{{ disease_info.get('healthy_image', 'path/to/default_healthy.jpg') }}" alt="Healthy Leaf" 
-                             style="width: 100%; height: 260px; object-fit: cover; border-radius: 12px; border: 2px solid #28a745;">
-                    </div>
-                    <div style="text-align: center;">
-                        <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">Your Analyzed Image</p>
-                        <img src="data:image/jpeg;base64,{{ image_b64 }}" alt="Analyzed Leaf" 
-                             style="width: 100%; height: 260px; object-fit: cover; border-radius: 12px; border: 2px solid #dc3545;">
-                    </div>
-                </div>
-                
-                <div style="margin-top: 1.5rem; font-size: 0.9rem; line-height: 1.6;">
-                    <p><strong>Description:</strong> {{ disease_info.get('description', 'No description available.') }}</p>
-                    <p><strong>Symptoms:</strong> {{ disease_info.get('symptoms', 'N/A') }}</p>
-                    <p><strong>Prevention/Treatment:</strong> {{ disease_info.get('treatment', 'Consult a local agricultural expert.') }}</p>
-                </div>
-            </div>
+{% set disease = results.disease|default({}) %}
+{% set growth = results.growth|default({}) %}
+{% set disease_confidences = disease.all_confidences|default({}) %}
+{% set growth_boxes = growth.boxes|default([]) %}
+{% set disease_info = results.disease_info|default({}) %}
 
 <section class="main-content">
   <div class="container" style="padding-bottom: 4rem">
     <div class="glass-card reveal reveal-fade-up results-card">
-      <div class="section-header" style="margin-bottom: 1.5rem">
-        <h1
-          style="
-            font-size: 2rem;
-            margin-bottom: 0.5rem;
-            color: var(--emerald-green);
-          "
-        >
-          <i class="fas fa-robot"></i> Analysis Results
+
+      <div class="results-header">
+        <h1 class="results-title">
+          <i class="fas fa-leaf"></i> Crop Analysis Results
         </h1>
-        <p style="font-size: 0.95rem">
-          Your crop image was analyzed using deep learning models for disease
-          detection and growth stage recognition.
+
+        <p class="results-subtitle">
+          Your crop image was analyzed using deep learning models for disease detection and growth stage recognition.
         </p>
       </div>
 
+      <div class="result-card">
+        <h2 class="results-section-title">
+          <i class="fas fa-stethoscope"></i> Disease Classification (ResNet50)
+        </h2>
 
-            <div class="result-card">
-            <h2 class="results-section-title">
-                <i class="fas fa-seedling"></i> Growth Stage Detection (YOLOv8)
-            </h2>
-            {% if growth.main_class %}
-            <ul class="results-list">
-                <li>
-                    <b>Main Stage:</b>
-                    {{ growth.main_class }}
-                    {% if growth.confidence is defined and growth.confidence is not none and growth.confidence > 0 %}
-                    <span class="badge badge-confidence" style="
-                        background: linear-gradient(135deg, #28a745 0%, #218838 100%);
-                        color: white;
-                        padding: 0.25rem 0.6rem;
-                        font-size: 0.8rem;
-                        font-weight: 600;
-                        border-radius: 50px;
-                        margin-left: 0.5rem;
-                        display: inline-block;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    ">
-                        <i class="fas fa-seedling"></i> {{ (growth.confidence * 100)|round(1) }}% Confidence
-                    </span>
-                    {% endif %}
-                </li>
-            </ul>
-            <table class="results-table reveal-stagger">
-                <tr class="reveal reveal-fade-in">
-                    <th>Stage Class</th>
-                    <th>Confidence</th>
-                    <th>BBox</th>
-                </tr>
-                {% for box in growth_boxes %}
-                <tr class="reveal reveal-fade-in">
-                    <td>{{ box.class_name }}</td>
-                    <td>{{ box.confidence|default(0)|float|round(3) }}</td>
-                    <td class="bbox-cell">
-                        [{{ box.bbox[0]|int }},<br>
-                        {{ box.bbox[1]|int }},<br>
-                        {{ box.bbox[2]|int }},<br>
-                        {{ box.bbox[3]|int }}]
-                    </td>
-                </tr>
-                {% endfor %}
-            </table>
-            {% else %}
-            <p style="margin-bottom: 2rem; color: var(--text-muted);">No cotton growth stage detected.</p>
+        <ul class="results-list">
+          <li>
+            <b>Detected Issue:</b>
+            {{ disease.detected_issue|default("Unknown") }}
+
+            {% if disease.model_confidence is defined and disease.model_confidence is not none and disease.model_confidence > 0 %}
+            <span
+              class="badge badge-confidence"
+              style="
+                background: linear-gradient(135deg, #17a2b8 0%, #117a8b 100%);
+                color: white;
+                padding: 0.25rem 0.6rem;
+                font-size: 0.8rem;
+                font-weight: 600;
+                border-radius: 50px;
+                margin-left: 0.5rem;
+                display: inline-block;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+              "
+            >
+              <i class="fas fa-circle-check"></i>
+              {{ disease.model_confidence|round(1) }}% Confidence
+            </span>
             {% endif %}
-            </div>
-{% if weather %}
-<div class="weather-card" style="
-    margin: 2rem 0;
-    padding: 1.5rem;
-    background: linear-gradient(135deg, #667eea15, #764ba215);
-    border: 1px solid #dee2e6;
-    border-radius: 16px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-">
-    <h3 style="margin: 0 0 1rem; color: #343a40; font-size: 1.1rem;">
-        ☁️ Current Weather Conditions
-    </h3>
- 
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1rem;">
- 
-        {% if weather.temperature is not none %}
-        <div class="w-stat" style="text-align:center; padding: 0.75rem; background: white; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);">
-            <div style="font-size: 1.8rem;">🌡️</div>
-            <div style="font-size: 1.3rem; font-weight: 600; color: #e74c3c;">{{ weather.temperature }}°C</div>
-            <div style="font-size: 0.75rem; color: #6c757d;">Temperature</div>
-        </div>
-        {% endif %}
- 
-        {% if weather.humidity is not none %}
-        <div class="w-stat" style="text-align:center; padding: 0.75rem; background: white; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);">
-            <div style="font-size: 1.8rem;">💧</div>
-            <div style="font-size: 1.3rem; font-weight: 600; color: #3498db;">{{ weather.humidity }}%</div>
-            <div style="font-size: 0.75rem; color: #6c757d;">Humidity</div>
-        </div>
-        {% endif %}
- 
-        {% if weather.precipitation is not none %}
-        <div class="w-stat" style="text-align:center; padding: 0.75rem; background: white; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);">
-            <div style="font-size: 1.8rem;">🌧️</div>
-            <div style="font-size: 1.3rem; font-weight: 600; color: #2980b9;">{{ weather.precipitation }} mm</div>
-            <div style="font-size: 0.75rem; color: #6c757d;">Precipitation</div>
-        </div>
-        {% endif %}
+          </li>
 
-    </div>
-</div>
-{% endif %}
+          <li>
+            <b>Model Prediction Confidence:</b>
+            {{ disease.model_confidence|default(0)|float|round(2) }}%
+
+            <div class="health-bar" style="margin-top: 0.4rem">
+              <div
+                class="health-fill"
+                style="width: {{ disease.model_confidence|default(0)|float|round(0) }}%;"
+              ></div>
+            </div>
+          </li>
+        </ul>
+
+        <table class="results-table reveal-stagger">
+          <tr class="reveal reveal-fade-in">
+            <th>Disease Class</th>
+            <th>Model Confidence</th>
+          </tr>
+
+          {% for cname, prob in disease_confidences.items() %}
+          <tr class="reveal reveal-fade-in">
+            <td>{{ cname }}</td>
+            <td>{{ (prob|default(0)|float * 100)|round(2) }}%</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+
+      <div class="result-card">
+        <h2 class="results-section-title">
+          <i class="fas fa-leaf"></i> Healthy vs Diseased Leaf Comparison
+        </h2>
+
+        <div
+          style="
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 1rem;
+          "
+        >
+          <div style="text-align: center;">
+            <p
+              style="
+                font-size: 0.85rem;
+                font-weight: 600;
+                color: var(--text-muted);
+              "
+            >
+              Healthy Reference
+            </p>
+
+            <img
+              src="{{ disease_info.get('healthy_image', 'path/to/default_healthy.jpg') }}"
+              alt="Healthy Leaf"
+              style="
+                width: 100%;
+                height: 260px;
+                object-fit: cover;
+                border-radius: 12px;
+                border: 2px solid #28a745;
+              "
+            />
+          </div>
+
+          <div style="text-align: center;">
+            <p
+              style="
+                font-size: 0.85rem;
+                font-weight: 600;
+                color: var(--text-muted);
+              "
+            >
+              Your Analyzed Image
+            </p>
+
+            <img
+              src="data:image/jpeg;base64,{{ image_b64 }}"
+              alt="Analyzed Leaf"
+              style="
+                width: 100%;
+                height: 260px;
+                object-fit: cover;
+                border-radius: 12px;
+                border: 2px solid #dc3545;
+              "
+            />
+          </div>
+        </div>
+
+        <div
+          style="
+            margin-top: 1.5rem;
+            font-size: 0.9rem;
+            line-height: 1.6;
+          "
+        >
+          <p>
+            <strong>Description:</strong>
+            {{ disease_info.get('description', 'No description available.') }}
+          </p>
+
+          <p>
+            <strong>Symptoms:</strong>
+            {{ disease_info.get('symptoms', 'N/A') }}
+          </p>
+
+          <p>
+            <strong>Prevention/Treatment:</strong>
+            {{ disease_info.get('treatment', 'Consult a local agricultural expert.') }}
+          </p>
+        </div>
+      </div>
       {% if image_b64 %}
       <div
         class="result-img-container"
