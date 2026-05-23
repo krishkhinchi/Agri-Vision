@@ -910,81 +910,84 @@ def comparison():
 
 @app.route("/demo")
 def demo():
-    example_disease_probs = [0.08, 0.02, 0.01, 0.10, 0.04, 0.65, 0.05, 0.05]
-    demo_disease = {
-        "predicted_class": "Healthy",
-        "predicted_class_idx": 5,
-        "confidence": example_disease_probs[5],
-        "model_confidence": round(example_disease_probs[5] * 100, 2),
-        "detected_issue": "Healthy",
-        "all_confidences": {
-            disease_classes[i]: example_disease_probs[i]
-            for i in range(len(disease_classes))
-        },
-        "health_score": 65.0,
-        "raw": [example_disease_probs],
+    try:
+        example_disease_probs = [0.08, 0.02, 0.01, 0.10, 0.04, 0.65, 0.05, 0.05]
+        demo_disease = {
+            "predicted_class": "Healthy",
+            "predicted_class_idx": 5,
+            "confidence": example_disease_probs[5],
+            "model_confidence": round(example_disease_probs[5] * 100, 2),
+            "detected_issue": "Healthy",
+            "all_confidences": {
+                disease_classes[i]: example_disease_probs[i]
+                for i in range(len(disease_classes))
+            },
+            "health_score": 65.0,
+            "raw": [example_disease_probs],
 
-        # add missing UI-safe fields
-        "is_uncertain": False,
-        "is_ambiguous": False,
-        "interpretation_message": "Healthy crop detected with moderate confidence."
-    }
-    demo_growth_boxes = [
-        {"class_id": 3, "class_name": "Matured Cotton Boll", "confidence": 0.91, "bbox": [120, 80, 210, 155]},
-        {"class_id": 4, "class_name": "Split Cotton Boll", "confidence": 0.70, "bbox": [300, 120, 390, 210]},
-    ]
-    demo_growth = {
-        "main_class": "Matured Cotton Boll",
-        "main_class_idx": 3,
-        "confidence": 0.91,
-        "boxes": demo_growth_boxes,
-        "raw": demo_growth_boxes,
-    }
+            # add missing UI-safe fields
+            "is_uncertain": False,
+            "is_ambiguous": False,
+            "interpretation_message": "Healthy crop detected with moderate confidence."
+        }
+        demo_growth_boxes = [
+            {"class_id": 3, "class_name": "Matured Cotton Boll", "confidence": 0.91, "bbox": [120, 80, 210, 155]},
+            {"class_id": 4, "class_name": "Split Cotton Boll", "confidence": 0.70, "bbox": [300, 120, 390, 210]},
+        ]
+        demo_growth = {
+            "main_class": "Matured Cotton Boll",
+            "main_class_idx": 3,
+            "confidence": 0.91,
+            "boxes": demo_growth_boxes,
+            "raw": demo_growth_boxes,
+        }
 
-    synthetic_bgr = np.zeros((384, 512, 3), dtype=np.uint8)
-    synthetic_bgr[:, :] = [30, 40, 45]
-    cv2.circle(synthetic_bgr, (200, 220), 120, (34, 139, 34), -1)
-    cv2.circle(synthetic_bgr, (320, 260), 100, (46, 139, 87), -1)
-    cv2.circle(synthetic_bgr, (120, 280), 90, (34, 120, 34), -1)
-    cv2.line(synthetic_bgr, (256, 384), (256, 200), (42, 75, 124), 12)
-    cv2.line(synthetic_bgr, (256, 260), (140, 180), (42, 75, 124), 8)
-    cv2.line(synthetic_bgr, (256, 220), (380, 150), (42, 75, 124), 8)
-    cv2.circle(synthetic_bgr, (220, 200), 15, (40, 50, 139), -1)
-    cv2.circle(synthetic_bgr, (215, 195), 5, (20, 30, 80), -1)
-    cv2.circle(synthetic_bgr, (180, 240), 10, (40, 50, 139), -1)
-    cv2.ellipse(synthetic_bgr, (165, 117), (40, 30), 0, 0, 360, (50, 180, 100), -1)
-    cv2.ellipse(synthetic_bgr, (165, 117), (40, 30), 0, 0, 360, (40, 140, 80), 2)
-    cv2.line(synthetic_bgr, (165, 87), (165, 75), (42, 75, 124), 4)
-    cv2.circle(synthetic_bgr, (330, 165), 20, (245, 245, 245), -1)
-    cv2.circle(synthetic_bgr, (360, 165), 20, (245, 245, 245), -1)
-    cv2.circle(synthetic_bgr, (345, 150), 20, (255, 255, 255), -1)
-    cv2.circle(synthetic_bgr, (345, 180), 20, (230, 230, 230), -1)
-    cv2.ellipse(synthetic_bgr, (345, 185), (35, 15), 0, 0, 360, (30, 50, 90), -1)
+        synthetic_bgr = np.zeros((384, 512, 3), dtype=np.uint8)
+        synthetic_bgr[:, :] = [30, 40, 45]
+        cv2.circle(synthetic_bgr, (200, 220), 120, (34, 139, 34), -1)
+        cv2.circle(synthetic_bgr, (320, 260), 100, (46, 139, 87), -1)
+        cv2.circle(synthetic_bgr, (120, 280), 90, (34, 120, 34), -1)
+        cv2.line(synthetic_bgr, (256, 384), (256, 200), (42, 75, 124), 12)
+        cv2.line(synthetic_bgr, (256, 260), (140, 180), (42, 75, 124), 8)
+        cv2.line(synthetic_bgr, (256, 220), (380, 150), (42, 75, 124), 8)
+        cv2.circle(synthetic_bgr, (220, 200), 15, (40, 50, 139), -1)
+        cv2.circle(synthetic_bgr, (215, 195), 5, (20, 30, 80), -1)
+        cv2.circle(synthetic_bgr, (180, 240), 10, (40, 50, 139), -1)
+        cv2.ellipse(synthetic_bgr, (165, 117), (40, 30), 0, 0, 360, (50, 180, 100), -1)
+        cv2.ellipse(synthetic_bgr, (165, 117), (40, 30), 0, 0, 360, (40, 140, 80), 2)
+        cv2.line(synthetic_bgr, (165, 87), (165, 75), (42, 75, 124), 4)
+        cv2.circle(synthetic_bgr, (330, 165), 20, (245, 245, 245), -1)
+        cv2.circle(synthetic_bgr, (360, 165), 20, (245, 245, 245), -1)
+        cv2.circle(synthetic_bgr, (345, 150), 20, (255, 255, 255), -1)
+        cv2.circle(synthetic_bgr, (345, 180), 20, (230, 230, 230), -1)
+        cv2.ellipse(synthetic_bgr, (345, 185), (35, 15), 0, 0, 360, (30, 50, 90), -1)
 
-    synthetic_rgb = cv2.cvtColor(synthetic_bgr, cv2.COLOR_BGR2RGB)
-    mock_overlay = apply_heatmap_on_image(synthetic_rgb, generate_mock_heatmap(synthetic_rgb))
-    image_b64 = encode_image_for_display(synthetic_rgb)
-    grad_cam_image_b64 = encode_image_for_display(mock_overlay)
+        synthetic_rgb = cv2.cvtColor(synthetic_bgr, cv2.COLOR_BGR2RGB)
+        mock_overlay = apply_heatmap_on_image(synthetic_rgb, generate_mock_heatmap(synthetic_rgb))
+        image_b64 = encode_image_for_display(synthetic_rgb)
+        grad_cam_image_b64 = encode_image_for_display(mock_overlay)
 
-    demo_disease["heatmap_b64"] = grad_cam_image_b64
-    example_json = {
-        "disease": demo_disease,
-        "growth": demo_growth,
-        "recommendations": generate_recommendations(demo_disease, demo_growth),
-        "grad_cam_image_b64": grad_cam_image_b64,
-    }
+        demo_disease["heatmap_b64"] = grad_cam_image_b64
+        example_json = {
+            "disease": demo_disease,
+            "growth": demo_growth,
+            "recommendations": generate_recommendations(demo_disease, demo_growth),
+            "grad_cam_image_b64": grad_cam_image_b64,
+        }
 
-    return render_template(
-        "results.html",
-        results=example_json,
-        filename="demo_cotton.jpg",
-        image_b64=image_b64,
-        img_shape={"width": 512, "height": 384},
-        raw_json=json.dumps(example_json, indent=2),
-        timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        grad_cam_image_b64=grad_cam_image_b64,
-    )
-
+        return render_template(
+            "results.html",
+            results=example_json,
+            filename="demo_cotton.jpg",
+            image_b64=image_b64,
+            img_shape={"width": 512, "height": 384},
+            raw_json=json.dumps(example_json, indent=2),
+            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            grad_cam_image_b64=grad_cam_image_b64,
+        )
+    except Exception as e:
+        logger.error(f"Demo route failed: {e}")
+        return redirect(url_for("index"))
 
 @app.route("/api/chat_test", methods=["GET"])
 def api_chat_test():
