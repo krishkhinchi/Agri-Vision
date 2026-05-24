@@ -115,82 +115,8 @@
     <div class="print-frame no-print"></div>
 
     <!-- Navigation -->
-<nav class="navbar" id="navbar">
-    <div class="nav-container">
-        <a href="/" class="nav-brand">
-            <i class="fas fa-seedling"></i>
-            <span>Agri-Vision</span>
-        </a>
 
-        <ul class="nav-menu">
 
-            <li>
-                <a href="/"
-                   class="nav-link {% if request.path == '/' %}active-nav{% endif %}">
-                   Home
-                </a>
-            </li>
-
-            <li>
-                <a href="/analyze"
-                   class="nav-link {% if request.path == '/analyze' %}active-nav{% endif %}">
-                   Analyze
-                </a>
-            </li>
-
-            <li>
-                <a href="/comparison"
-                   class="nav-link {% if request.path == '/comparison' %}active-nav{% endif %}">
-                   Field Comparison
-                </a>
-            </li>
-
-            <li>
-                <a href="/demo"
-                   class="nav-link {% if request.path == '/demo' %}active-nav{% endif %}">
-                   Demo
-                </a>
-            </li>
-
-            <li>
-                <a href="/tutorials"
-                   class="nav-link {% if request.path == '/tutorials' %}active-nav{% endif %}">
-                   Tutorials
-                </a>
-            </li>
-
-            <li>
-                <a href="/stories"
-                   class="nav-link {% if request.path == '/stories' %}active-nav{% endif %}">
-                   Stories
-                </a>
-            </li>
-
-            <li>
-                <a href="/support"
-                   class="nav-link {% if request.path == '/support' %}active-nav{% endif %}">
-                   Support
-                </a>
-            </li>
-
-            <li>
-                <button id="theme-toggle"
-                        class="theme-toggle-btn"
-                        aria-label="Toggle dark mode">
-                    <i class="fas fa-moon"></i>
-                </button>
-            </li>
-
-            <li>
-                <a href="/analyze" class="btn btn-primary">
-                    Get Started
-                </a>
-            </li>
-
-        </ul>
-    </div>
-</nav>
-=======
     <nav class="navbar" id="navbar">
         <div class="nav-container">
             <a href="/" class="nav-brand">
@@ -205,6 +131,7 @@
                 <li><a href="/demo">Demo</a></li>
                 <li><a href="/tutorials">Tutorials</a></li>
                 <li><a href="/stories">Stories</a></li>
+                <li><a href="/history">History</a></li>
                 <li>
                     <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle dark mode">
                         <i class="fas fa-moon"></i>
@@ -214,8 +141,9 @@
             </ul>
         </div>
     </nav>
- main
-
+<!-- =========================================================
+     Temporary Merge Conflict Text Cleanup
+========================================================= -->
     <!-- Main Content -->
     <main>
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -401,7 +329,7 @@
                 <a href="/">Home</a>
                 <a href="/analyze">Analyze</a>
                 <a href="/comparison">Field Comparison</a>
-                <a href="/dashboard">Dashboard</a>
+                <a href="{{ url_for('dashboard') }}">Dashboard</a>
                 <a href="/demo">Demo</a>
                 <a href="/tutorials">Tutorials</a>
                 <a href="{{ url_for('support') }}">Support</a>
@@ -464,36 +392,52 @@
         document.getElementById("year").textContent = new Date().getFullYear();
 
         // Theme Toggle Logic
-        const themeToggleBtn = document.getElementById('theme-toggle');
-        const themeIcon = themeToggleBtn ? themeToggleBtn.querySelector('i') : null;
+        document.addEventListener('DOMContentLoaded', () => {
 
-        function updateThemeIcon() {
-            if (!themeIcon) return;
-            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-            if (isDark) {
-                themeIcon.classList.remove('fa-moon');
-                themeIcon.classList.add('fa-sun');
-            } else {
-                themeIcon.classList.remove('fa-sun');
-                themeIcon.classList.add('fa-moon');
+            const themeToggleBtn = document.getElementById('theme-toggle');
+            const themeIcon = document.querySelector('#theme-toggle i');
+
+            // SET DEFAULT THEME
+            if (!document.documentElement.getAttribute('data-theme')) {
+                document.documentElement.setAttribute('data-theme', 'light');
             }
-        }
-
-        if (themeToggleBtn) {
-            updateThemeIcon();
+        
+            // LOAD SAVED THEME
+            const savedTheme = localStorage.getItem('theme');
+        
+            if (savedTheme === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                themeIcon.classList.replace('fa-moon', 'fa-sun');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'light');
+                themeIcon.classList.replace('fa-sun', 'fa-moon');
+            }
+        
+            // TOGGLE BUTTON
             themeToggleBtn.addEventListener('click', () => {
-                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            
+                const currentTheme =
+                    document.documentElement.getAttribute('data-theme');
+            
+                if (currentTheme === 'dark') {
                 
-                if (!isDark) {
-                    document.documentElement.setAttribute('data-theme', 'dark');
-                    localStorage.setItem('theme', 'dark');
-                } else {
-                    document.documentElement.removeAttribute('data-theme');
+                    document.documentElement.setAttribute('data-theme', 'light');
+                
                     localStorage.setItem('theme', 'light');
+                
+                    themeIcon.classList.replace('fa-sun', 'fa-moon');
+                
+                } else {
+                
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                
+                    localStorage.setItem('theme', 'dark');
+                
+                    themeIcon.classList.replace('fa-moon', 'fa-sun');
                 }
-                updateThemeIcon();
             });
-        }
+        
+        });
     </script>
     <script>
         // Navbar scroll effect

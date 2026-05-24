@@ -1,0 +1,122 @@
+{% extends "index.html" %}
+
+{% block content %}
+
+<section class="main-content">
+
+    <div class="container">
+
+        <h1 class="results-title">
+            Crop Analysis History
+        </h1>
+
+        <div
+            class="history-container"
+            id="historyContainer">
+
+        </div>
+
+    </div>
+
+</section>
+
+<script>
+
+const history =
+    JSON.parse(localStorage.getItem("cropHistory")) || [];
+
+const container =
+    document.getElementById("historyContainer");
+
+if(history.length === 0){
+
+    container.innerHTML =
+        "<p>No scan history found.</p>";
+}
+
+history.forEach(item => {
+
+    container.innerHTML += `
+
+    <div class="history-card">
+
+        <img
+            src="${item.image}"
+            alt="Crop Image">
+
+        <h2>${item.disease}</h2>
+
+        <p>
+            <b>Confidence:</b>
+            ${item.confidence}
+        </p>
+
+        <p>
+            <b>Treatment:</b>
+            ${item.treatment}
+        </p>
+
+        <p>
+            <b>Date:</b>
+            ${item.date}
+        </p>
+
+    </div>
+    `;
+});
+
+</script>
+
+<style>
+.main-content{
+
+    min-height:75vh;
+}
+.history-container{
+
+    display:grid;
+
+    grid-template-columns:
+    repeat(auto-fit,minmax(320px,1fr));
+
+    gap:20px;
+
+    margin-top:2rem;
+}
+
+.history-card{
+
+    background:rgba(255,255,255,0.08);
+
+    backdrop-filter:blur(10px);
+
+    border:1px solid rgba(255,255,255,0.1);
+
+    border-radius:20px;
+
+    padding:20px;
+
+    transition:0.3s;
+}
+
+.history-card:hover{
+
+    transform:translateY(-5px);
+}
+
+.history-card img{
+
+    width:100%;
+
+    height:220px;
+
+    object-fit:cover;
+
+    border-radius:14px;
+
+    margin-bottom:1rem;
+}
+
+</style>
+
+{% endblock %}

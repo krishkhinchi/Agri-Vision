@@ -13,6 +13,10 @@ python-dotenv>=1.1.0
 Werkzeug>=3.1.0
 ultralytics>=8.3.0
 
+#updated used  in app.py
+torch>=2.0.0
+torchvision>=0.15.0
+
 # Deployment
 gunicorn>=23.0.0
 

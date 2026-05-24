@@ -3155,7 +3155,6 @@ fix-stories-card-alignment
    the professional frontend experience of the
    Agri-Vision AI-powered agricultural platform.
 ========================================================= */
-=======
 }
 
 /*  MOBILE RESPONSIVENESS */
@@ -3588,10 +3587,6 @@ html {
         transform: none !important;
     }
 }
- main
- improve-footer-responsiveness
-}
-
 /* =========================================================
    Footer Responsiveness & Spacing Improvements
    =========================================================
@@ -3713,8 +3708,99 @@ html {
    across different viewport dimensions while
    preserving readability and navigation clarity.
 ========================================================= */
-=======
- main
+.agri-scan-history-panel {
+    margin-top: 2rem;
+    padding: 1.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    background: rgba(8, 22, 18, 0.68);
+    box-shadow: 0 16px 38px rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(16px);
+}
+
+.agri-scan-history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.agri-scan-history-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 1rem;
+}
+
+.agri-scan-history-card {
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+    transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.agri-scan-history-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(45, 212, 117, 0.38);
+    box-shadow: 0 18px 36px rgba(0, 0, 0, 0.3);
+}
+
+.agri-scan-history-img {
+    display: block;
+    width: 100%;
+    height: 145px;
+    object-fit: cover;
+    background: rgba(0, 0, 0, 0.22);
+}
+
+.agri-scan-history-body {
+    padding: 0.9rem;
+}
+
+.agri-scan-history-disease {
+    color: #ffffff;
+    font-size: 0.98rem;
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+}
+
+.agri-scan-history-confidence,
+.agri-scan-history-date,
+.agri-scan-history-empty {
+    color: rgba(255, 255, 255, 0.72);
+    font-size: 0.84rem;
+}
+
+.agri-scan-history-date {
+    margin-top: 0.25rem;
+}
+
+.agri-scan-history-empty {
+    padding: 0.9rem;
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.agri-scan-history-delete {
+    margin-top: 0.8rem;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid rgba(255, 95, 95, 0.35);
+    border-radius: 999px;
+    background: rgba(239, 68, 68, 0.16);
+    color: #ffd4d4;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.agri-scan-history-delete:hover {
+    background: rgba(239, 68, 68, 0.28);
+    transform: translateY(-1px);
+}
 
 .agri-leaf-compare-wrap {
     margin-top: 2rem;
@@ -3801,11 +3887,19 @@ html {
 }
 
 @media (max-width: 768px) {
-    .agri-leaf-compare-wrap {
+    .agri-scan-history-panel {
         padding: 1rem;
     }
 
+    .agri-scan-history-list,
     .agri-leaf-compare-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .agri-leaf-compare-wrap {
+        padding: 1rem;
+    }
+}
         grid-template-columns: 1fr;
     }
 }
