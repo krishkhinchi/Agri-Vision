@@ -67,6 +67,66 @@
         </ul>
       </div>
 
+      <div class="agri-leaf-compare-wrap fade-in">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.5rem;">
+          <div>
+            <h2 class="results-section-title" style="margin-top: 0; margin-bottom: 0.2rem;"><i class="fas fa-microscope"></i> Visual Health Comparison</h2>
+            <p style="color: var(--text-muted); font-size: 0.95rem; margin: 0;">
+              Compare the expected healthy appearance with your uploaded crop image.
+            </p>
+          </div>
+        </div>
+        
+        <div class="agri-leaf-compare-grid">
+          
+          <!-- Healthy Panel -->
+          <div class="agri-leaf-compare-card">
+            <div class="agri-leaf-compare-imagebox">
+              <img src="/{{ disease_info.healthy_image|default('static/images/healthy_leaf.jpg') }}" alt="Healthy Reference" onerror="this.src='https://images.unsplash.com/photo-1592982537447-6f296dbf1708?auto=format&fit=crop&w=800&q=80'" />
+              <div class="agri-leaf-healthy-label"><i class="fas fa-check-circle"></i> Healthy Reference</div>
+            </div>
+            <div class="agri-leaf-symptoms-panel" style="margin: 1rem; border: none; background: transparent; box-shadow: none; padding: 0;">
+              <h3 style="font-size: 1.05rem; color: var(--emerald-green); margin-bottom: 0.5rem;"><i class="fas fa-leaf"></i> Expected Appearance</h3>
+              <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-main); margin-bottom: 0; opacity: 0.9;">
+                A healthy cotton crop should have a uniform green color, normal leaf shape, and no visible spots, mildew, or pest damage.
+              </p>
+            </div>
+          </div>
+
+          <!-- Diseased/Uploaded Panel -->
+          <div class="agri-leaf-compare-card">
+            <div class="agri-leaf-compare-imagebox">
+              {% if grad_cam_image_b64 %}
+              <img src="data:image/jpeg;base64,{{ grad_cam_image_b64 }}" alt="AI Focus Image" />
+              {% else %}
+              <img src="data:image/jpeg;base64,{{ image_b64 }}" alt="Uploaded Image" />
+              {% endif %}
+              
+              {% if disease.detected_issue == 'Healthy' %}
+              <div class="agri-leaf-healthy-label"><i class="fas fa-leaf"></i> Detected: {{ disease.detected_issue|default("Healthy") }}</div>
+              {% else %}
+              <div class="agri-leaf-diseased-label"><i class="fas fa-exclamation-triangle"></i> Detected: {{ disease.detected_issue|default("Unknown Issue") }}</div>
+              {% endif %}
+            </div>
+            <div class="agri-leaf-treatment-panel" style="margin: 1rem; border: none; background: transparent; box-shadow: none; padding: 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <h3 style="font-size: 1.05rem; color: {% if disease.detected_issue == 'Healthy' %}var(--emerald-green){% else %}#f87171{% endif %}; margin-bottom: 0;">Analysis Result</h3>
+                <span class="badge badge-confidence" style="background: rgba(255,255,255,0.1); color: var(--text-main); padding: 0.25rem 0.6rem; font-size: 0.75rem; border-radius: 50px;">
+                  <i class="fas fa-bullseye"></i> {{ disease.model_confidence|default(0)|round(1) }}% Confidence
+                </span>
+              </div>
+              <div class="health-bar" style="height: 6px; margin: 0.8rem 0 1rem 0; background: rgba(0,0,0,0.2);">
+                  <div class="health-fill" style="width: {{ disease.health_score|default(0)|round(0) }}%; {% if disease.health_score|default(0)|float < 50 %}background: linear-gradient(90deg, #f87171, #ef4444); box-shadow: 0 0 10px rgba(239,68,68,0.4);{% elif disease.health_score|default(0)|float < 80 %}background: linear-gradient(90deg, #fbbf24, #f59e0b); box-shadow: 0 0 10px rgba(245,158,11,0.4);{% endif %}"></div>
+              </div>
+              <p style="font-size: 0.9rem; line-height: 1.5; color: var(--text-main); margin-bottom: 0; opacity: 0.9;">
+                {{ disease_info.symptoms|default("No specific symptoms to report for this diagnosis.") }}
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
       <div class="result-card">
         <h2 class="results-section-title"><i class="fas fa-seedling"></i> Growth Stage Detection (YOLOv8)</h2>
         {% if growth.main_class %}
