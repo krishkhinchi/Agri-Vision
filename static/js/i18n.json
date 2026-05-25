@@ -1,0 +1,41 @@
+{
+  "en": {
+    "nav_home": "Home",
+    "nav_analyze": "Analyze",
+    "nav_comparison": "Field Comparison",
+    "nav_stories": "Stories",
+    "nav_support": "Support",
+    "footer_text": "Agri-Vision © 2026",
+    "upload_title": "Analyze Your Cotton Crop",
+    "upload_btn": "Analyze Image",
+    "lang_en": "English",
+    "lang_hi": "हिन्दी",
+    "lang_te": "తెలుగు"
+  },
+  "hi": {
+    "nav_home": "होम",
+    "nav_analyze": "विश्लेषण करें",
+    "nav_comparison": "क्षेत्र तुलना",
+    "nav_stories": "कहानियां",
+    "nav_support": "सहायता",
+    "footer_text": "अग्री-विजन © 2026",
+    "upload_title": "अपनी कपास फसल का विश्लेषण करें",
+    "upload_btn": "छवि का विश्लेषण करें",
+    "lang_en": "English",
+    "lang_hi": "हिन्दी",
+    "lang_te": "తెలుగు"
+  },
+  "te": {
+    "nav_home": "హోమ్",
+    "nav_analyze": "విశ్లేషించండి",
+    "nav_comparison": "ఫీల్డ్ పోలిక",
+    "nav_stories": "కథలు",
+    "nav_support": "మద్దతు",
+    "footer_text": "అగ్రి-విజన్ © 2026",
+    "upload_title": "మీ పత్తి పంటను విశ్లేషించండి",
+    "upload_btn": "చిత్రాన్ని విశ్లేషించండి",
+    "lang_en": "English",
+    "lang_hi": "हिन्दी",
+    "lang_te": "తెలుగు"
+  }
+}

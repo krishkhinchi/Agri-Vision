@@ -15,11 +15,16 @@
         })();
     </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-
+    <script src="{{ url_for('static', filename='js/i18n.js') }}" defer></script>
 </head>
 <body>
     <header>
         <h1>Agri-Vision</h1>
+        <select id="lang-selector">
+            <option value="en" data-i18n="lang_en">English</option>
+            <option value="hi" data-i18n="lang_hi">हिन्दी</option>
+            <option value="te" data-i18n="lang_te">తెలుగు</option>
+        </select>
         <hr/>
     </header>
     <main>
