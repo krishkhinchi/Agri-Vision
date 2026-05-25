@@ -168,7 +168,8 @@ def get_weather_openweathermap(lat: float, lon: float, api_key: str) -> Optional
             "appid": api_key,
             "units": "metric",
         }
-        resp = requests.get(OPENWEATHER_URL, params=params, timeout=7)
+        # Reuse shared session so OpenWeatherMap calls also benefit from retry policy.
+        resp = session.get(OPENWEATHER_URL, params=params, timeout=7)
         resp.raise_for_status()
         data = resp.json()
         main = data.get("main", {})

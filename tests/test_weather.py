@@ -51,7 +51,7 @@ MOCK_GEOCODING_RESPONSE = {
 
 class TestGetWeatherOpenMeteo:
 
-    @patch("services.weather_service.requests.get")
+    @patch("services.weather_service.session.get")
     def test_returns_structured_dict(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.json.return_value = MOCK_OPEN_METEO_RESPONSE
@@ -220,7 +220,7 @@ class TestGetWeatherOpenWeatherMap:
         assert result["lat"] == 21.14
         assert result["lon"] == 79.08
 
-    @patch("services.weather_service.requests.get")
+    @patch("services.weather_service.session.get")
     def test_returns_none_on_failure(self, mock_get):
         mock_get.side_effect = Exception("API error")
 
@@ -229,7 +229,7 @@ class TestGetWeatherOpenWeatherMap:
 
         assert result is None
 
-    @patch("services.weather_service.requests.get")
+    @patch("services.weather_service.session.get")
     def test_rainfall_parsed_correctly(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.raise_for_status = MagicMock()
