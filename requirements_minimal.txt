@@ -1,0 +1,13 @@
+Flask
+numpy
+opencv-python-headless
+Pillow
+flask-cors
+python-dotenv
+Werkzeug
+ultralytics
+torch
+torchvision
+flasgger
+celery
+redis

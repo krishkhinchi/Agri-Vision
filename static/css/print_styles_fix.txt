@@ -1,0 +1,79 @@
+    margin: 0.7rem 0;
+}
+
+.health-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(
+        90deg,
+        #5dd18b,
+        #6ddc90
+    );
+    box-shadow: 0 0 15px rgba(93,211,139,0.45);
+}
+
+/* =========================================================
+   Print & Export PDF Styles
+   ========================================================= */
+@media print {
+    .no-print, 
+    .navbar, 
+    .footer, 
+    .upload-btn, 
+    #toggle-ai-focus, 
+    .results-summary, 
+    .results-pre,
+    .trail-container,
+    .theme-toggle-btn {
+        display: none !important;
+    }
+
+    body {
+        background: white !important;
+        color: black !important;
+    }
+
+    .main-content {
+        padding-top: 0 !important;
+    }
+
+    .glass-card {
+        background: white !important;
+        box-shadow: none !important;
+        border: 1px solid #ddd !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+    }
+
+    .results-card {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        box-shadow: none !important;
+    }
+
+    .result-card {
+        page-break-inside: avoid;
+        margin-bottom: 20px !important;
+        border: 1px solid #eee !important;
+        padding: 15px !important;
+        background: white !important;
+    }
+
+    .results-section-title {
+        color: #2E8B57 !important;
+    }
+
+    .health-bar {
+        border: 1px solid #ddd !important;
+        background: #f5f5f5 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    .health-fill {
+        background: #2E8B57 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}

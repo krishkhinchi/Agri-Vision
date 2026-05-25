@@ -1,0 +1,17 @@
+Flask
+numpy
+opencv-python-headless
+Pillow
+flask-cors
+tensorflow-cpu
+matplotlib
+scikit-learn
+python-dotenv
+Werkzeug
+ultralytics
+gunicorn
+pytest
+pytest-cov
+flasgger
+celery
+redis
