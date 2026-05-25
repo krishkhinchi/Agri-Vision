@@ -109,8 +109,14 @@
             <div style="font-size: 1.8rem;">🌧️</div>
             <div style="font-size: 1.3rem; font-weight: 600; color: #2980b9;">{{ weather.precipitation }} mm</div>
             <div style="font-size: 0.75rem; color: #6c757d;">Precipitation</div>
-          {% endif %}
-      <!-- Analyzed Image + Bounding Boxes -->
+        </div>
+        {% endif %}
+
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Analyzed Image + Bounding Boxes -->
       {% endif %}
       {% if image_b64 %}
       <div class="result-img-container" style="position: relative; margin-bottom: 2rem">
@@ -219,6 +225,21 @@
           <li><b>Detected Issue:</b> {{ disease.detected_issue|default("Unknown") }}
             {% if disease.model_confidence %}
             <span class="badge badge-confidence" style="background: linear-gradient(135deg, #17a2b8 0%, #117a8b 100%); color: white; padding: 0.25rem 0.6rem; font-size: 0.8rem; font-weight: 600; border-radius: 50px; margin-left: 0.5rem; display: inline-block;">
+              {% if disease.health_score %}
+                {% if disease.health_score < 40 %}
+                    <span class="badge" style="background:#dc3545;color:white;padding:0.3rem 0.7rem;border-radius:20px;margin-left:0.5rem;">
+                        Severe
+                    </span>
+                {% elif disease.health_score < 75 %}
+                    <span class="badge" style="background:#ffc107;color:black;padding:0.3rem 0.7rem;border-radius:20px;margin-left:0.5rem;">
+                        Moderate
+                    </span>
+                {% else %}
+                    <span class="badge" style="background:#28a745;color:white;padding:0.3rem 0.7rem;border-radius:20px;margin-left:0.5rem;">
+                        Healthy
+                    </span>
+                {% endif %}
+            {% endif %}
                 <i class="fas fa-circle-check"></i> {{ disease.model_confidence|round(1) }}% Confidence
             </span>
             {% endif %}
@@ -228,11 +249,61 @@
             </a>
             {% endif %}
           </li>
+          {% if disease.model_confidence and disease.model_confidence < 70 %}
+          <div class="low-confidence-alert" style="
+              margin-top: 1rem;
+              padding: 1rem;
+              border-radius: 12px;
+              background: linear-gradient(135deg, #fff3cd, #ffe69c);
+              border-left: 5px solid #ffb703;
+              color: #664d03;
+              animation: pulseWarning 2s infinite;
+          ">
+              <h4 style="margin-bottom: 0.5rem;">
+                  <i class="fas fa-triangle-exclamation"></i>
+                  Low Confidence Detection
+              </h4>
+
+              <p style="margin:0; line-height:1.6;">
+                  The AI model is uncertain about this prediction.
+                  Please upload a clearer leaf image with proper lighting
+                  or consult an agricultural expert for manual verification.
+              </p>
+          </div>
+          {% endif %}
           <li><b>Health Score:</b> {{ disease.health_score|default(0)|round(2) }}%
             <div class="health-bar" style="margin-top: 0.4rem">
                 <div class="health-fill" style="width: {{ disease.health_score|default(0)|round(0) }}%;"></div>
             </div>
           </li>
+          <div class="xai-probability-card">
+          <div class="xai-confidence-title">
+              <i class="fas fa-brain"></i>
+              AI Prediction Confidence Meter
+          </div>
+
+          <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+              <span>Prediction Reliability</span>
+              <span>{{ disease.model_confidence|default(0)|round(1) }}%</span>
+          </div>
+
+          <div class="xai-confidence-meter">
+              <div class="xai-confidence-fill"
+                  style="width: {{ disease.model_confidence|default(0) }}%;">
+              </div>
+          </div>
+
+          <p style="
+              margin-top:0.8rem;
+              color: var(--text-muted);
+              line-height:1.6;
+              font-size:0.9rem;
+          ">
+              Higher confidence indicates the model found stronger
+              visual disease patterns inside the crop image.
+          </p>
+         </p>
+      </div> 
         </ul>
       </div>
 
@@ -399,21 +470,6 @@
         </div>
       </div>
 
-      <div class="result-card">
-        <h2 class="results-section-title"><i class="fas fa-seedling"></i> Growth Stage Detection (YOLOv8)</h2>
-        {% if growth.main_class %}
-        <ul class="results-list">
-          <li><b>Main Stage:</b> {{ growth.main_class }}
-             <span class="badge badge-confidence" style="background: linear-gradient(135deg, #28a745 0%, #218838 100%); color: white; padding: 0.25rem 0.6rem; font-size: 0.8rem; font-weight: 600; border-radius: 50px; margin-left: 0.5rem; display: inline-block;">
-                <i class="fas fa-seedling"></i> {{ (growth.confidence * 100)|round(1) }}% Confidence
-             </span>
-          </li>
-        </ul>
-        {% else %}
-        <p style="margin-bottom: 2rem; color: var(--text-muted)">No cotton growth stage detected.</p>
-        {% endif %}
-      </div>
-
       {% if weather %}
       <div class="weather-card" style="margin: 2rem 0; padding: 1.5rem; background: linear-gradient(135deg, #667eea15, #764ba215); border: 1px solid #dee2e6; border-radius: 16px;">
         <h3 style="margin: 0 0 1rem; color: #343a40; font-size: 1.1rem">☁️ Current Weather Conditions</h3>
@@ -465,6 +521,18 @@
           <h2 class="results-section-title" style="margin: 0; font-size: 1.5rem;">
             <i class="fas fa-brain" style="color: var(--ai-blue, #3b82f6);"></i> Explainable AI (Grad-CAM Diagnostic)
           </h2>
+          <div style="
+              margin-top:1rem;
+              padding:1rem;
+              border-radius:12px;
+              background:rgba(16,185,129,0.08);
+              border-left:4px solid #10b981;
+              ">
+              <strong>Why this matters:</strong>
+              This Explainable AI system helps farmers visually verify
+              whether the model is focusing on actual infected regions
+              instead of irrelevant background objects.
+          </div>
           <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0.4rem; margin-bottom: 0;">
             Understand exactly which visual features in your leaf image led the deep learning model to this prediction.
           </p>
@@ -523,6 +591,23 @@
             <div class="probability-chart-wrap" style="background: rgba(0,0,0,0.01); border: 1px solid var(--card-border); border-radius: 12px; padding: 1.2rem;">
               <h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; color: var(--text-main);"><i class="fas fa-chart-bar"></i> Full Probability Distribution</h4>
               <div class="probability-bars" style="display: flex; flex-direction: column; gap: 0.6rem;">
+                <div style="
+                    margin-top:1.5rem;
+                    padding:1rem;
+                    border-radius:12px;
+                    background:rgba(59,130,246,0.08);
+                    border:1px solid rgba(59,130,246,0.2);
+                    ">
+                    <h4 style="margin-bottom:0.7rem;">
+                        <i class="fas fa-lightbulb"></i>
+                        Alternative Predictions
+                    </h4>
+
+                    <p style="margin:0;color:var(--text-muted);line-height:1.6;">
+                        The AI also evaluated similar disease patterns before making the final prediction.
+                        Lower-ranked predictions may appear when symptoms visually overlap.
+                    </p>
+                </div>
                 {% for cname, cprob in disease_confidences.items() %}
                 <div class="prob-bar-row" style="display: flex; align-items: center; font-size: 0.85rem;">
                   <span style="width: 120px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main);">{{ cname }}</span>
@@ -585,11 +670,6 @@
         <button onclick="exportToPDF()" class="upload-btn" style="padding:0.5rem 1rem; font-size:0.9rem;">
           <i class="fas fa-file-pdf"></i> Download PDF Report
         </button>
-      <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem;">
-        <a href="/analyze" class="upload-btn"><i class="fas fa-plus-circle"></i> New Analysis</a>
-        <button onclick="exportToPDF()" class="upload-btn"><i class="fas fa-file-pdf"></i> Export PDF</button>
-      </div>
-
     </div>
   </div>
 </section>
@@ -702,10 +782,6 @@
     renderScanHistory();
   });
 
-  function exportToPDF() {
-    window.print();
-  }
-});
 
 async function exportToPDF() {
   const { jsPDF } = window.jspdf;
@@ -766,57 +842,63 @@ async function exportToPDF() {
   }
 }
 
-function readInsights() {
-  var insights = [];
-  {% if results.farmer_insights %}
-  {% for insight in results.farmer_insights %}
-  insights.push("{{ insight | replace('"', '\\"') }}");
-  {% endfor %}
-  {% endif %}
-  {% if yield_estimate %}
-  insights.push("Based on current conditions, your estimated cotton yield is between {{ yield_estimate.yield_min_acre }} and {{ yield_estimate.yield_max_acre }} quintals per acre.");
-  {% endif %}
-
-  if (!window.speechSynthesis) {
-    alert("Speech synthesis is not supported in this browser.");
-    return;
-
-  function exportExplainabilityReport() {
+function exportExplainabilityReport() {
     window.print();
-  }
+}
 
-  function readInsights() {
+function readInsights() {
     var insights = [];
+
     {% if results.farmer_insights %}
     {% for insight in results.farmer_insights %}
     insights.push("{{ insight | replace('"', '\\"') }}");
     {% endfor %}
     {% endif %}
-    {% if results.yield_prediction %}
-    insights.push("Estimated yield is {{ results.yield_prediction.estimated_yield_kg_per_acre }} kilograms per acre.");
+
+    {% if yield_estimate %}
+    insights.push(
+        "Based on current conditions, your estimated cotton yield is between {{ yield_estimate.yield_min_acre }} and {{ yield_estimate.yield_max_acre }} quintals per acre."
+    );
     {% endif %}
 
     if (!window.speechSynthesis) {
-      alert("Speech synthesis is not supported in this browser.");
-      return;
+        alert("Speech synthesis is not supported in this browser.");
+        return;
     }
-    window.speechSynthesis.cancel();
-    var utterance = new SpeechSynthesisUtterance("Here are your crop analysis insights. " + insights.join(" "));
-    window.speechSynthesis.speak(utterance);
-  }
 
-  document.addEventListener("DOMContentLoaded", function () {
-      const cropHistory = JSON.parse(localStorage.getItem("cropHistory")) || [];
-      const scanData = {
-          disease: `{{ disease.detected_issue|default("Unknown") }}`,
-          confidence: `{{ disease.model_confidence|default(0)|float|round(2) }}%`,
-          treatment: `{{ disease_info.get('treatment', 'No treatment available.') }}`,
-          date: `{{ timestamp }}`,
-          image: "data:image/jpeg;base64,{{ image_b64 }}"
-      };
-      cropHistory.unshift(scanData);
-      localStorage.setItem("cropHistory", JSON.stringify(cropHistory));
-  });
+    window.speechSynthesis.cancel();
+
+    var utterance = new SpeechSynthesisUtterance(
+        "Here are your crop analysis insights. " + insights.join(" ")
+    );
+
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    window.speechSynthesis.speak(utterance);
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    const cropHistory 
+        JSON.parse(localStorage.getItem("cropHistory")) || [];
+
+    const scanData = {
+        disease: `{{ disease.detected_issue|default("Unknown") }}`,
+        confidence: `{{ disease.model_confidence|default(0)|float|round(2) }}%`,
+        treatment: `{{ disease_info.get('treatment', 'No treatment available.') }}`,
+        date: `{{ timestamp }}`,
+        image: "data:image/jpeg;base64,{{ image_b64 }}"
+    };
+
+    cropHistory.unshift(scanData);
+
+    localStorage.setItem(
+        "cropHistory",
+        JSON.stringify(cropHistory)
+    );
+});
 </script>
 
 {% endblock %}
