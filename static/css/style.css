@@ -4311,6 +4311,50 @@ button:disabled {
     }
 }
 
+@keyframes pulseWarning {
+    0% {
+        box-shadow: 0 0 0 rgba(255, 183, 3, 0.4);
+    }
+
+    50% {
+        box-shadow: 0 0 20px rgba(255, 183, 3, 0.7);
+    }
+
+    100% {
+        box-shadow: 0 0 0 rgba(255, 183, 3, 0.4);
+    }
+}
+
+.xai-probability-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    padding: 1rem;
+    border-radius: 14px;
+    margin-top: 1rem;
+    backdrop-filter: blur(10px);
+}
+
+.xai-confidence-title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    color: var(--text-main);
+}
+
+.xai-confidence-meter {
+    height: 12px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.08);
+    margin-top: 0.5rem;
+}
+
+.xai-confidence-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #10b981, #3b82f6);
+    transition: width 1s ease;
+}
 /* =========================================================
    Issue #275: Light Theme UI Inconsistencies Fixes
    
