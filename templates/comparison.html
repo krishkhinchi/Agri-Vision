@@ -40,9 +40,14 @@
                         <small>All formats supported (Max 5MB)</small>
                     </div>
                     <img id="lastWeekPreview"
-                        src=""
-                        style="display:none; width:100%; height:100%; object-fit:cover; border-radius:12px;">
-
+                         src=""
+                         style="display:none; width:100%; height:100%; object-fit:cover; border-radius:12px;">
+                                    
+                    <button type="button"
+                            class="remove-image-btn"
+                            onclick="removeImage('lastWeekInput','lastWeekPreview','lastWeekFile', this)">
+                            <i class="fas fa-times"></i>
+                    </button>
                     <span id="lastWeekFile">No image selected</span>
                 </label>
             </div>
@@ -78,7 +83,11 @@
                     <img id="currentWeekPreview"
                          src=""
                          style="display:none; width:100%; height:100%; object-fit:cover; border-radius:12px;">
-                
+                    <button type="button"
+                            class="remove-image-btn"
+                            onclick="removeImage('currentWeekInput','currentWeekPreview','currentWeekFile', this)">
+                            <i class="fas fa-times"></i>
+                    </button>
                     <span id="currentWeekFile">No image selected</span>
                 
               </label>
@@ -217,6 +226,31 @@ function showError(message, inputId) {
     }
 }
 
+
+function removeImage(inputId, previewId, labelId, button) {
+
+    const input = document.getElementById(inputId);
+    const preview = document.getElementById(previewId);
+    const label = document.getElementById(labelId);
+
+    input.value = "";
+
+    preview.src = "";
+    preview.style.display = "none";
+
+    label.textContent = "No image selected";
+
+    const dropzone = input.closest(".comparison-dropzone");
+
+    const placeholder = dropzone.querySelector(".upload-placeholder");
+
+    if (placeholder) {
+        placeholder.style.display = "block";
+    }
+
+    button.style.display = "none";
+}
+
 function hideError() {
     const errorDiv = document.getElementById('validation-error');
     const duplicateWarning = document.getElementById('duplicate-warning');
@@ -295,6 +329,11 @@ document.addEventListener("DOMContentLoaded", function() {
                     if (preview) {
                         preview.src = event.target.result;
                         preview.style.display = "block";
+                        const removeBtn = preview.nextElementSibling;
+
+                    if (removeBtn) {
+                        removeBtn.style.display = "flex";
+                    }
                         const placeholder = input.closest(".comparison-dropzone")
                                                  .querySelector(".upload-placeholder");
 
