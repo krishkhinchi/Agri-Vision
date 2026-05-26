@@ -1,20 +1,15 @@
 """
 Agri-Vision Flask Application
 Unified inference for disease classification (ResNet50) and growth stage prediction (YOLOv8)
-Thread-safe execution for production environments with Celery Async Support.
-Optimized via a Two-Pointer Ambiguity Filter for overlapping disease classes.
 """
-
-from __future__ import annotations
-
-import base64
 import hashlib
-import json
 import logging
 import os
 import random
 import re
 import threading
+import json
+import base64
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
@@ -22,8 +17,11 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+from PIL import Image
+from torchvision import transforms
+from ultralytics import YOLO
 from dotenv import load_dotenv
-from flasgger import Swagger
+
 from flask import (
     Flask,
     Response,
@@ -34,18 +32,23 @@ from flask import (
     request,
     stream_with_context,
     url_for,
+    Request,
+    send_file,
+    make_response
 )
 from flask_cors import CORS
-from PIL import Image
-from torchvision import transforms
-from ultralytics import YOLO
-from werkzeug.utils import secure_filename
+from flasgger import Swagger
+from flask_sqlalchemy import SQLAlchemy
+from jinja2 import Environment, FileSystemLoader
 
-from services.weather_service import (
-    generate_weather_recommendations,
-    geocode_city,
-    get_weather,
-)
+# redis and rate limiting imports
+import redis
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+from model_registry import registry
+from services.weather_service import generate_weather_recommendations
+from services.yield_service import estimate_yield
 
 load_dotenv()
 
@@ -53,6 +56,41 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+
+# redis setup for rate limiting & payload caching
+try:
+    redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+    redis_client.ping()
+    logger.info("redis connected for caching and rate limiting")
+    limiter = Limiter(
+        get_remote_address,
+        app=app,
+        storage_uri="redis://localhost:6379",
+        strategy="fixed-window"
+    )
+except redis.ConnectionError:
+    logger.warning("redis is down. falling back to in-memory rate limiting. caching disabled.")
+    redis_client = None
+    limiter = Limiter(get_remote_address, app=app)
+
+# db config
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///agri_vision.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+from models import db
+db.init_app(app)
+
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+class CustomRequest(Request):
+    max_form_memory_size = 25 * 1024 * 1024  
+
+app.request_class = CustomRequest
+
 swagger = Swagger(app)
 CORS(app)
 
@@ -63,7 +101,6 @@ app.jinja_env.cache = {}
 
 secret_key = os.getenv("SECRET_KEY") or "dev_secret_123"
 app.secret_key = secret_key
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
 LANG = {
     "en": {"welcome": "Welcome to Agri Vision"},
@@ -155,10 +192,6 @@ disease_info_map = {
 UNCERTAINTY_THRESHOLD = 0.45
 AMBIGUITY_MARGIN = 0.08
 
-
-# -------------------------------------------------------------------
-# THREAD-SAFE MODEL MANAGER
-# -------------------------------------------------------------------
 class ModelManager:
     _instance = None
     _instance_lock = threading.Lock()
@@ -203,20 +236,20 @@ class ModelManager:
                         )
                     self.resnet_model.eval()
                     self.errors["resnet"] = None
-                    logger.info("ResNet50 model loaded successfully")
+                    logger.info("ResNet50 loaded")
                 except Exception as exc:
                     self.errors["resnet"] = str(exc)
-                    logger.warning(f"ResNet50 model not found or failed to load: {exc}")
+                    logger.warning(f"ResNet50 load failed: {exc}")
                     self.resnet_model = None
 
             if self.yolo_model is None:
                 try:
                     self.yolo_model = YOLO(YOLO_MODEL_PATH)
                     self.errors["yolo"] = None
-                    logger.info("YOLOv8 model loaded successfully")
+                    logger.info("YOLOv8 loaded")
                 except Exception as exc:
                     self.errors["yolo"] = str(exc)
-                    logger.warning(f"YOLOv8 model not found or failed to load: {exc}")
+                    logger.warning(f"YOLOv8 load failed: {exc}")
                     self.yolo_model = None
 
             self.loaded = True
@@ -236,34 +269,25 @@ class ModelManager:
             },
         }
 
-
 model_manager = ModelManager()
 
 resnet_model = None
 yolo_model = None
 
-
 def load_models():
-    """Wrapper for backward compatibility"""
     global resnet_model, yolo_model
     resnet_model, yolo_model = model_manager.load_models()
     return resnet_model, yolo_model
 
-
 def ensure_models_loaded() -> None:
     load_models()
 
-
-# -------------------------------------------------------------------
-# HELPER FUNCTIONS
-# -------------------------------------------------------------------
 def _ensure_rgb(image: np.ndarray) -> np.ndarray:
     if image is None:
         raise ValueError("Image is None")
     if image.ndim != 3 or image.shape[2] != 3:
         raise ValueError("Expected an RGB image with 3 channels")
     return image
-
 
 def resize_image(image: np.ndarray, max_dim: int = MAX_INFERENCE_DIMENSION) -> np.ndarray:
     height, width = image.shape[:2]
@@ -273,29 +297,8 @@ def resize_image(image: np.ndarray, max_dim: int = MAX_INFERENCE_DIMENSION) -> n
     new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
     return cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
 
-
 def calculate_disease_severity(health_score: float) -> float:
     return max(0.0, 100.0 - float(health_score))
-
-
-def predict_yield(health_score: float, growth_stage: str, area_acres: float = 1.0) -> Dict[str, float]:
-    base_yield = 700.0
-    health_factor = float(health_score) / 100.0
-    stage_factors = {
-        "Cotton Blossom": 0.8,
-        "Cotton Bud": 0.9,
-        "Early Boll": 1.0,
-        "Matured Cotton Boll": 1.1,
-        "Split Cotton Boll": 1.0,
-    }
-    g_factor = stage_factors.get(growth_stage, 0.9)
-    estimated_yield = base_yield * health_factor * g_factor * float(area_acres)
-    confidence = min(95.0, 50.0 + (float(health_score) * 0.4))
-    return {
-        "estimated_yield_kg_per_acre": round(estimated_yield, 2),
-        "confidence_percentage": round(confidence, 2),
-    }
-
 
 def generate_mock_heatmap(image_rgb: np.ndarray) -> np.ndarray:
     h, w, _ = image_rgb.shape
@@ -308,15 +311,16 @@ def generate_mock_heatmap(image_rgb: np.ndarray) -> np.ndarray:
     heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
     return heatmap
 
-
-def apply_heatmap_on_image(image_rgb: np.ndarray, heatmap: np.ndarray, alpha: float = 0.6, beta: float = 0.4) -> np.ndarray:
+def generate_pure_heatmap(image_rgb: np.ndarray, heatmap: np.ndarray) -> np.ndarray:
     h, w, _ = image_rgb.shape
     heatmap_resized = cv2.resize(heatmap, (w, h))
     heatmap_255 = np.uint8(255 * heatmap_resized)
     heatmap_color = cv2.applyColorMap(heatmap_255, cv2.COLORMAP_JET)
-    heatmap_color_rgb = cv2.cvtColor(heatmap_color, cv2.COLOR_BGR2RGB)
-    return cv2.addWeighted(image_rgb, alpha, heatmap_color_rgb, beta, 0)
+    return cv2.cvtColor(heatmap_color, cv2.COLOR_BGR2RGB)
 
+def apply_heatmap_on_image(image_rgb: np.ndarray, heatmap: np.ndarray, alpha: float = 0.6, beta: float = 0.4) -> np.ndarray:
+    heatmap_color_rgb = generate_pure_heatmap(image_rgb, heatmap)
+    return cv2.addWeighted(image_rgb, alpha, heatmap_color_rgb, beta, 0)
 
 class GradCAM:
     def __init__(self, model: torch.nn.Module, target_layer: torch.nn.Module):
@@ -324,9 +328,9 @@ class GradCAM:
         self.target_layer = target_layer
         self.gradients = None
         self.activations = None
+        self.heatmap_np = None
         self.forward_handle = self.target_layer.register_forward_hook(self._save_activation)
         self.backward_handle = self.target_layer.register_full_backward_hook(self._save_gradient)
-        logger.info("Grad-CAM hooks registered on layer: %s", target_layer.__class__.__name__)
 
     def cleanup(self) -> None:
         if getattr(self, "forward_handle", None) is not None:
@@ -351,15 +355,18 @@ class GradCAM:
 
     def __call__(self, input_tensor: torch.Tensor, target_class_idx: Optional[int], original_image_rgb: np.ndarray) -> Optional[np.ndarray]:
         if self.model is None:
-            logger.warning("Grad-CAM: model is not loaded.")
             return None
 
         self.model.eval()
         self.model.zero_grad(set_to_none=True)
         self.activations = None
         self.gradients = None
+        self.heatmap_np = None
 
         try:
+            device = next(self.model.parameters()).device
+            input_tensor = input_tensor.to(device)
+
             with torch.enable_grad():
                 output = self.model(input_tensor)
                 if target_class_idx is None:
@@ -369,7 +376,6 @@ class GradCAM:
                 score.backward()
 
                 if self.activations is None or self.gradients is None:
-                    logger.warning("Grad-CAM: activations or gradients not captured.")
                     return None
 
                 pooled_gradients = torch.mean(self.gradients, dim=(2, 3))
@@ -384,19 +390,16 @@ class GradCAM:
                     heatmap = heatmap / max_val
 
                 heatmap_np = heatmap.detach().cpu().numpy()
+                self.heatmap_np = heatmap_np
                 return apply_heatmap_on_image(original_image_rgb, heatmap_np)
 
         except Exception as exc:
-            logger.error("Error generating Grad-CAM: %s", exc)
+            logger.error("Grad-CAM error: %s", exc)
             return None
         finally:
             self.gradients = None
             self.activations = None
 
-
-# -------------------------------------------------------------------
-# INFERENCE PIPELINE
-# -------------------------------------------------------------------
 def preprocess_image_for_resnet(image: np.ndarray, target_size: Tuple[int, int] = (224, 224)) -> torch.Tensor:
     transform = transforms.Compose([
         transforms.ToPILImage(),
@@ -406,90 +409,39 @@ def preprocess_image_for_resnet(image: np.ndarray, target_size: Tuple[int, int] 
     tensor = transform(image).unsqueeze(0)
     return tensor
 
-
-def infer_disease(image: np.ndarray) -> Dict[str, Any]:
-    global resnet_model
-    if resnet_model is None:
-        resnet_model, _ = model_manager.load_models()
-
-    if resnet_model is not None:
+def infer_disease(image):
+    if model_manager.resnet_model:
         processed = preprocess_image_for_resnet(image)
         with torch.no_grad():
-            output = resnet_model(processed)
+            output = model_manager.resnet_model(processed)
             probs = F.softmax(output, dim=1)
-            _, prediction = torch.max(probs, 1)
-        probs_np = probs.detach().cpu().numpy()
+            confidence, prediction = torch.max(probs, 1)
+        probs_np = probs.numpy()
+        class_idx = int(prediction.item())
+        confidence_value = float(confidence.item())
+        predicted_class = disease_classes[class_idx]
+        healthy_idx = disease_classes.index("Healthy")  
+        health_score = float(probs_np[0][healthy_idx]) * 100
     else:
         probs_np = np.random.rand(1, len(disease_classes))
         probs_np = probs_np / probs_np.sum(axis=1, keepdims=True)
+        class_idx = int(np.argmax(probs_np[0]))
+        confidence_value = float(np.max(probs_np[0]))
+        predicted_class = disease_classes[class_idx]
+        health_score = float(np.max(probs_np[0]))*100
 
-    probabilities = probs_np[0]
-
-    # -------------------------------------------------------------------
-    # TWO-POINTER RESOLUTION FILTER FOR OVERLAPPING DISEASES (#270 Feature)
-    # -------------------------------------------------------------------
-    indexed_probs = sorted(
-        [(float(prob), idx) for idx, prob in enumerate(probabilities)],
-        key=lambda x: x[0],
-        reverse=True
-    )
-
-    low = 0
-    high = 1
-
-    top1_conf, top1_idx = indexed_probs[low]
-    top2_conf, top2_idx = indexed_probs[high]
-
-    predicted_class = disease_classes[top1_idx]
-    alternative_class = disease_classes[top2_idx]
-
-    healthy_idx = disease_classes.index("Healthy")
-    health_score = float(probabilities[healthy_idx]) * 100
-
-    is_uncertain = top1_conf < UNCERTAINTY_THRESHOLD
-    is_ambiguous = False
-    contender_classes = []
-
-    while high < len(indexed_probs):
-        current_conf, current_idx = indexed_probs[high]
-        if abs(top1_conf - current_conf) < AMBIGUITY_MARGIN:
-            is_ambiguous = True
-            contender_classes.append(disease_classes[current_idx])
-        high += 1
-
-    interpretation_message = None
-    if is_uncertain:
-        interpretation_message = "The model could not make a confident prediction. Please upload a clearer crop image or seek expert review."
-    elif is_ambiguous:
-        if len(contender_classes) > 1:
-            contenders_str = ", ".join(contender_classes)
-            interpretation_message = f"The prediction is close between {predicted_class} and other localized indicators: {contenders_str}. Monitor the crop closely for overlapping symptoms."
-        else:
-            interpretation_message = f"The prediction is somewhat ambiguous between {predicted_class} and {alternative_class}."
-
-    disease_confidences = {disease_classes[i]: float(probabilities[i]) for i in range(len(disease_classes))}
+    disease_confidences = {disease_classes[i]: float(probs_np[0][i]) for i in range(len(disease_classes))}
 
     return {
         "predicted_class": predicted_class,
-        "predicted_class_idx": top1_idx,
-        "confidence": top1_conf,
+        "predicted_class_idx": class_idx,
+        "confidence": confidence_value,
         "all_confidences": disease_confidences,
         "health_score": health_score,
         "raw": probs_np.tolist(),
-        "detected_issue": predicted_class,
-        "model_confidence": round(top1_conf * 100, 2),
-        "alternative_prediction": {
-            "class": alternative_class,
-            "confidence": round(top2_conf * 100, 2),
-        },
-        "is_uncertain": is_uncertain,
-        "is_ambiguous": is_ambiguous,
-        "interpretation_message": interpretation_message,
     }
 
-
-def infer_growth_stage(image: np.ndarray) -> Dict[str, Any]:
-    _, yolo_model = model_manager.load_models()
+def infer_growth_stage(image):
     result = {
         "main_class": None,
         "main_class_idx": None,
@@ -497,39 +449,35 @@ def infer_growth_stage(image: np.ndarray) -> Dict[str, Any]:
         "boxes": [],
         "raw": [],
     }
-
-    if yolo_model is None:
-        return result
-
-    pil_image = Image.fromarray(image)
-    yolo_results = yolo_model(pil_image)
-    boxes = []
-
-    for r in yolo_results:
-        if not hasattr(r, "boxes") or r.boxes is None:
-            continue
-        for b in r.boxes:
-            class_id = int(b.cls[0].item()) if hasattr(b.cls[0], "item") else int(b.cls[0])
-            conf = float(b.conf[0].item()) if hasattr(b.conf[0], "item") else float(b.conf[0])
-            xyxy = b.xyxy[0].cpu().numpy().tolist()
-            boxes.append({
-                "class_id": class_id,
-                "class_name": growth_stage_classes[class_id] if class_id < len(growth_stage_classes) else str(class_id),
-                "confidence": conf,
-                "bbox": xyxy,
+    if model_manager.yolo_model:
+        pil_image = Image.fromarray(image)
+        yolo_results = model_manager.yolo_model(pil_image)
+        boxes = []
+        for r in yolo_results:
+            if hasattr(r, 'boxes'):
+                for b in r.boxes:
+                    class_id = int(b.cls[0].item()) if hasattr(b.cls[0], 'item') else int(b.cls[0])
+                    conf = float(b.conf[0].item()) if hasattr(b.conf[0], 'item') else float(b.conf[0])
+                    xyxy = b.xyxy[0].cpu().numpy().tolist()
+                    boxes.append({
+                        "class_id": class_id,
+                        "class_name": growth_stage_classes[class_id] if class_id < len(growth_stage_classes) else str(class_id),
+                        "confidence": conf,
+                        "bbox": xyxy,
+                    })
+            else:
+                continue
+                
+        if len(boxes):
+            main = max(boxes, key=lambda x: x['confidence'])
+            result.update({
+                "main_class": main["class_name"],
+                "main_class_idx": main["class_id"],
+                "confidence": main["confidence"],
             })
-
-    if boxes:
-        main = max(boxes, key=lambda x: x["confidence"])
-        result.update({
-            "main_class": main["class_name"],
-            "main_class_idx": main["class_id"],
-            "confidence": main["confidence"],
-            "boxes": boxes,
-        })
-    result["raw"] = boxes
+            result["boxes"] = boxes
+        result["raw"] = boxes
     return result
-
 
 def generate_recommendations(disease_result: Dict[str, Any], growth_result: Dict[str, Any], weather: Optional[Dict[str, Any]] = None) -> list[str]:
     recs: list[str] = []
@@ -575,7 +523,6 @@ def generate_recommendations(disease_result: Dict[str, Any], growth_result: Dict
 
     return recs[:6]
 
-
 def generate_farmer_insights(disease_result: Dict[str, Any], growth_result: Dict[str, Any]) -> list[str]:
     insights = []
     dclass = disease_result["predicted_class"]
@@ -602,7 +549,6 @@ def generate_farmer_insights(disease_result: Dict[str, Any], growth_result: Dict
 
     return insights
 
-
 def generate_advanced_recommendations(disease_result: Dict[str, Any], growth_result: Dict[str, Any]) -> Dict[str, str]:
     gmain = growth_result.get("main_class", "Unknown")
     dclass = disease_result["predicted_class"]
@@ -627,9 +573,8 @@ def generate_advanced_recommendations(disease_result: Dict[str, Any], growth_res
         adv_recs["pest_prevention"] = "Apply specific anti-worm biological controls like Bacillus thuringiensis (Bt)."
     elif dclass == "Cotton Boll Rot":
         adv_recs["irrigation_timing"] = "Stop irrigation immediately to allow soil and plant base to dry."
-
+        
     return adv_recs
-
 
 def encode_image_for_display(image: np.ndarray) -> str:
     display_image = resize_image(image, DISPLAY_IMAGE_MAX_DIMENSION)
@@ -639,13 +584,10 @@ def encode_image_for_display(image: np.ndarray) -> str:
         raise ValueError("Failed to encode image for display")
     return base64.b64encode(buffer).decode("utf-8")
 
-
 def is_allowed_image(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
 
-
 def calculate_file_hash(file_storage) -> str:
-    """Generate SHA-256 hash for an uploaded file using chunk reading."""
     sha256_hash = hashlib.sha256()
     file_storage.seek(0)
     for byte_block in iter(lambda: file_storage.read(4096), b""):
@@ -653,8 +595,8 @@ def calculate_file_hash(file_storage) -> str:
     file_storage.seek(0)
     return sha256_hash.hexdigest()
 
-
 def read_uploaded_image(file_storage) -> Tuple[str, np.ndarray, np.ndarray]:
+    from werkzeug.utils import secure_filename
     safe_filename = secure_filename(file_storage.filename)
     file_bytes = np.frombuffer(file_storage.read(), np.uint8)
     image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
@@ -662,8 +604,25 @@ def read_uploaded_image(file_storage) -> Tuple[str, np.ndarray, np.ndarray]:
         raise ValueError("Error reading image file")
     return safe_filename, image, cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
+GRAD_CAM_CACHE = {}
+GRAD_CAM_CACHE_LOCK = threading.Lock()
+MAX_CACHE_SIZE = 100
+
+def get_cached_grad_cam(image_hash: str) -> Optional[Tuple[str, str]]:
+    with GRAD_CAM_CACHE_LOCK:
+        return GRAD_CAM_CACHE.get(image_hash)
+
+def set_cached_grad_cam(image_hash: str, overlay_b64: str, heatmap_only_b64: str) -> None:
+    with GRAD_CAM_CACHE_LOCK:
+        if len(GRAD_CAM_CACHE) >= MAX_CACHE_SIZE:
+            first_key = next(iter(GRAD_CAM_CACHE))
+            GRAD_CAM_CACHE.pop(first_key, None)
+        GRAD_CAM_CACHE[image_hash] = (overlay_b64, heatmap_only_b64)
 
 def analyze_image(image: np.ndarray) -> Dict[str, Any]:
+    import time
+    start_time = time.time()
+    
     resnet_model, yolo_model = model_manager.load_models()
     try:
         try:
@@ -676,29 +635,71 @@ def analyze_image(image: np.ndarray) -> Dict[str, Any]:
         if not isinstance(disease, dict) or "predicted_class" not in disease or "health_score" not in disease:
             raise ValueError("Invalid disease model prediction output.")
 
-        grad_cam_image_b64 = None
-        if resnet_model is not None and disease.get("predicted_class_idx") is not None:
-            try:
-                input_tensor = preprocess_image_for_resnet(image)
-                with GradCAM(resnet_model, resnet_model.layer4[-1]) as grad_cam:
-                    grad_cam_overlay = grad_cam(input_tensor, disease["predicted_class_idx"], image)
-                if grad_cam_overlay is not None:
-                    grad_cam_image_b64 = encode_image_for_display(grad_cam_overlay)
-            except Exception as exc:
-                logger.error("Error generating Grad-CAM: %s", exc)
+        inference_time = time.time() - start_time
+        try:
+            if disease and disease.get("confidence"):
+                registry.update_metrics(
+                    model_type="resnet",
+                    version="v1.0",
+                    confidence=disease.get("confidence", 0.0),
+                    inference_time=inference_time,
+                    success=True
+                )
+            
+            if growth and growth.get("confidence"):
+                registry.update_metrics(
+                    model_type="yolo",
+                    version="v1.0",
+                    confidence=growth.get("confidence", 0.0),
+                    inference_time=inference_time,
+                    success=True
+                )
+        except Exception as e:
+            logger.error(f"Error tracking metrics: {e}")
 
-        if grad_cam_image_b64 is None:
-            try:
-                mock_overlay = apply_heatmap_on_image(image, generate_mock_heatmap(image))
-                grad_cam_image_b64 = encode_image_for_display(mock_overlay)
-            except Exception as exc:
-                logger.error("Error generating fallback heatmap: %s", exc)
+        image_hash = hashlib.sha256(image.tobytes()).hexdigest()
+        cached_result = get_cached_grad_cam(image_hash)
+        
+        grad_cam_image_b64 = None
+        heatmap_only_b64 = None
+        
+        if cached_result is not None:
+            grad_cam_image_b64, heatmap_only_b64 = cached_result
+        else:
+            if resnet_model is not None and disease.get("predicted_class_idx") is not None:
+                try:
+                    input_tensor = preprocess_image_for_resnet(image)
+                    with GradCAM(resnet_model, resnet_model.layer4[-1]) as grad_cam:
+                        grad_cam_overlay = grad_cam(input_tensor, disease["predicted_class_idx"], image)
+                        heatmap_np = getattr(grad_cam, "heatmap_np", None)
+                    if grad_cam_overlay is not None:
+                        grad_cam_image_b64 = encode_image_for_display(grad_cam_overlay)
+                    if heatmap_np is not None:
+                        pure_heatmap_rgb = generate_pure_heatmap(image, heatmap_np)
+                        heatmap_only_b64 = encode_image_for_display(pure_heatmap_rgb)
+                except Exception as exc:
+                    logger.error("Error generating Grad-CAM: %s", exc)
+
+            if grad_cam_image_b64 is None or heatmap_only_b64 is None:
+                try:
+                    mock_heatmap = generate_mock_heatmap(image)
+                    mock_overlay = apply_heatmap_on_image(image, mock_heatmap)
+                    grad_cam_image_b64 = encode_image_for_display(mock_overlay)
+                    
+                    pure_heatmap_rgb = generate_pure_heatmap(image, mock_heatmap)
+                    heatmap_only_b64 = encode_image_for_display(pure_heatmap_rgb)
+                except Exception as exc:
+                    logger.error("Error generating fallback heatmap: %s", exc)
+            
+            if grad_cam_image_b64 and heatmap_only_b64:
+                set_cached_grad_cam(image_hash, grad_cam_image_b64, heatmap_only_b64)
 
         disease["heatmap_b64"] = grad_cam_image_b64
+        disease["heatmap_only_b64"] = heatmap_only_b64
 
         recs = generate_recommendations(disease, growth)
         severity = calculate_disease_severity(disease["health_score"])
-        y_pred = predict_yield(disease["health_score"], growth.get("main_class", "Unknown"))
+        yield_est = estimate_yield(disease, growth, weather=None, field_acres=1.0)
         adv_recs = generate_advanced_recommendations(disease, growth)
         insights = generate_farmer_insights(disease, growth)
 
@@ -707,34 +708,33 @@ def analyze_image(image: np.ndarray) -> Dict[str, Any]:
             "growth": growth,
             "recommendations": recs,
             "grad_cam_image_b64": grad_cam_image_b64,
+            "heatmap_only_b64": heatmap_only_b64,
             "disease_severity": severity,
-            "yield_prediction": y_pred,
+            "yield_estimate": yield_est,
             "advanced_recommendations": adv_recs,
             "farmer_insights": insights,
         }
 
         if growth.get("main_class") is None:
-            fallback_reason = "Growth stage model unavailable in this deployment." if yolo_model is None else "Cotton growth stage could not be detected from the uploaded image."
+            fallback_reason = "Growth stage model unavailable." if yolo_model is None else "Cotton growth stage could not be detected."
             result["warnings"] = [
                 fallback_reason,
-                "Disease analysis is still provided, but comparison may be less reliable without a confirmed cotton crop detection.",
-                "Grad-CAM explainability may also be affected if the primary crop is not detected.",
+                "Disease analysis is still provided, but comparison may be less reliable.",
             ]
 
         return result
     except Exception as exc:
         logger.error("Unexpected error in image analysis: %s", exc)
-        return {"error": "The AI model encountered an unexpected error while analyzing the image. Please verify the image file format and content and try again."}
-
+        return {"error": "The AI model encountered an error. Please verify the image file."}
 
 def build_comparison_result(old_results: Dict[str, Any], new_results: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(old_results, dict) or not isinstance(new_results, dict):
-        raise ValueError("Comparison analysis did not produce valid result objects.")
+        raise ValueError("Invalid result objects.")
 
     old_disease = old_results.get("disease")
     new_disease = new_results.get("disease")
     if old_disease is None or new_disease is None:
-        raise ValueError("Unable to compare the provided images because one or both images did not contain a valid cotton crop analysis.")
+        raise ValueError("Valid crop analysis missing in one or both images.")
 
     old_score = float(old_disease.get("health_score", 0.0))
     new_score = float(new_disease.get("health_score", 0.0))
@@ -744,15 +744,15 @@ def build_comparison_result(old_results: Dict[str, Any], new_results: Dict[str, 
     if change > 1:
         trend = {"status": "improved", "label": "Improved", "icon": "fa-arrow-trend-up", "direction": "up"}
         headline = f"Crop health improved by {abs_change:.1f}%"
-        recommendation = "Continue the current treatment plan, keep irrigation steady, and scout every few days to confirm the recovery trend."
+        recommendation = "Continue current treatment plan."
     elif change < -1:
         trend = {"status": "declined", "label": "Declined", "icon": "fa-arrow-trend-down", "direction": "down"}
         headline = f"Crop health declined by {abs_change:.1f}%"
-        recommendation = "Increase field inspection frequency, isolate visibly affected plants, and consider expert guidance before the disease pressure spreads."
+        recommendation = "Increase inspection frequency."
     else:
         trend = {"status": "stable", "label": "Stable", "icon": "fa-arrows-left-right", "direction": "flat"}
         headline = "Crop health remained stable"
-        recommendation = "Maintain the current crop care routine and compare again after the next treatment or irrigation cycle."
+        recommendation = "Maintain current routine."
 
     old_predicted = old_disease.get("predicted_class", "Unknown")
     new_predicted = new_disease.get("predicted_class", "Unknown")
@@ -761,16 +761,9 @@ def build_comparison_result(old_results: Dict[str, Any], new_results: Dict[str, 
 
     summary = [
         headline,
-        "Disease spread reduced" if disease_reduced else (f"Disease signal shifted from {old_predicted} to {new_predicted}" if disease_changed else f"Disease signal remains {new_predicted}"),
+        "Disease spread reduced" if disease_reduced else (f"Signal shifted to {new_predicted}" if disease_changed else f"Signal remains {new_predicted}"),
         recommendation,
     ]
-
-    if new_results.get("recommendations"):
-        summary.append(f"Model priority: {new_results['recommendations'][0]}")
-
-    if isinstance(new_results.get("farmer_insights"), list):
-        insight_msg = f"Crop health improved by {abs_change:.1f}% this week." if change > 0 else (f"Crop health declined by {abs_change:.1f}% this week." if change < 0 else "Crop health remained stable this week.")
-        new_results["farmer_insights"].insert(0, insight_msg)
 
     return {
         "old_score": old_score,
@@ -782,10 +775,6 @@ def build_comparison_result(old_results: Dict[str, Any], new_results: Dict[str, 
         "summary": summary,
     }
 
-
-# -------------------------------------------------------------------
-# FLASK ROUTES
-# -------------------------------------------------------------------
 @app.after_request
 def add_no_cache_headers(response):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -793,578 +782,95 @@ def add_no_cache_headers(response):
     response.headers["Expires"] = "0"
     return response
 
-
-def is_pytest_mode() -> bool:
-    return "PYTEST_CURRENT_TEST" in os.environ
-
-
 @app.route("/")
 def index():
     lang = request.args.get("lang", "en")
     return render_template("index.html", text=LANG.get(lang, LANG["en"]), lang=lang)
-
-
-@app.route("/set-language/<lang>")
-def set_language(lang):
-    return redirect(url_for("index", lang=lang))
-
-
-@app.template_filter("datetimeformat")
-def datetimeformat_filter(value):
-    if value == "now":
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return value
-
-
-@app.route("/tutorials")
-def tutorials():
-    return render_template("tutorials.html")
-
-
-@app.route("/support")
-def support():
-    return render_template("support.html")
-
-
-@app.route("/stories")
-def stories():
-    return render_template("stories.html")
-
-
-@app.route("/dashboard")
-def dashboard():
-    farms = [
-        {"name": "GreenGrid Hub — Gujarat", "health": 82, "stage": "Matured Boll", "disease_risk": "Low", "yield_est": 740},
-        {"name": "North Field — Punjab", "health": 61, "stage": "Early Boll", "disease_risk": "Medium", "yield_est": 520},
-        {"name": "West Field — Maharashtra", "health": 45, "stage": "Cotton Bud", "disease_risk": "High", "yield_est": 310},
-        {"name": "East Field — Rajasthan", "health": 91, "stage": "Split Cotton Boll", "disease_risk": "Low", "yield_est": 860},
-    ]
-    return render_template("dashboard.html", farms=farms)
-
-
-@app.route("/history")
-def history():
-    return render_template("history.html")
-
 
 @app.route("/health")
 def health():
     ensure_models_loaded()
     diagnostics = model_manager.diagnostics()
     model_loaded = diagnostics["resnet"]["loaded"] and diagnostics["yolo"]["loaded"]
+    status_code = 200 if model_loaded else 503
     return jsonify({
-        "status": "healthy",
-        "mode": "ready" if model_loaded else "degraded",
-        "timestamp": datetime.now().isoformat(),
+        "status": "healthy" if model_loaded else "degraded",
         "model_loaded": model_loaded,
         "models": diagnostics,
-        "service": "Agri-Vision Cotton Analysis API",
-    })
+    }), status_code
 
-
-@app.route("/analyze", methods=["GET", "POST"])
-def analyze():
-    if request.method == "POST":
-        if "file" not in request.files:
-            flash("No file uploaded", "error")
-            return redirect(request.url)
-
-        file = request.files["file"]
-        if file.filename == "":
-            flash("No file selected", "error")
-            return redirect(request.url)
-
-        if not is_allowed_image(file.filename):
-            flash("Invalid file type. Please upload an image (PNG, JPG, JPEG, GIF)", "error")
-            return redirect(request.url)
-
-        try:
-            safe_filename, image, image_rgb = read_uploaded_image(file)
-            compressed_rgb = resize_image(image_rgb, MAX_INFERENCE_DIMENSION)
-            results = analyze_image(compressed_rgb)
-
-            lat = request.form.get("lat", type=float)
-            lon = request.form.get("lon", type=float)
-            city = request.form.get("city", type=str)
-            weather = None
-
-            if lat is not None and lon is not None:
-                owm_key = os.getenv("OPENWEATHER_API_KEY")
-                weather = get_weather(lat, lon, owm_key)
-            elif city:
-                geo = geocode_city(city)
-                if geo:
-                    owm_key = os.getenv("OPENWEATHER_API_KEY")
-                    weather = get_weather(geo["lat"], geo["lon"], owm_key)
-
-            if weather and results.get("disease") and results.get("growth"):
-                results["recommendations"] = (results.get("recommendations", []) + generate_weather_recommendations(weather))[:6]
-                results["weather"] = weather
-
-            if results.get("error"):
-                raise ValueError(results["error"])
-
-            predicted_class = results.get("disease", {}).get("predicted_class", "")
-            disease_info = disease_info_map.get(predicted_class, {})
-
-            return render_template(
-                "results.html",
-                results=results,
-                filename=safe_filename,
-                image_b64=encode_image_for_display(image_rgb),
-                img_shape={"width": image.shape[1], "height": image.shape[0]},
-                raw_json=json.dumps(results, indent=2),
-                timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                weather=weather,
-                grad_cam_image_b64=results.get("grad_cam_image_b64"),
-                disease_info=disease_info,
-            )
-        except Exception as exc:
-            logger.error("Analysis error: %s", exc)
-            flash(f"Error during analysis: {str(exc)}", "error")
-            return redirect(request.url)
-
-    return render_template("upload.html")
-
-
-@app.route("/comparison", methods=["GET", "POST"])
-def comparison():
-    error_message = None
-    old_filename, new_filename, old_image, new_image = None, None, None, None
-
-    if request.method == "POST":
-        required_files = {"last_week_image": "Last Week Field Image", "current_week_image": "Current Week Field Image"}
-        for field_name, label in required_files.items():
-            if field_name not in request.files:
-                flash(f"{label} is required", "error")
-                return redirect(request.url)
-            uploaded_file = request.files[field_name]
-            if uploaded_file.filename == "":
-                flash(f"Please select a file for {label}", "error")
-                return redirect(request.url)
-            if not is_allowed_image(uploaded_file.filename):
-                flash(f"Invalid file type for {label}. Please upload PNG, JPG, JPEG, or GIF.", "error")
-                return redirect(request.url)
-
-        try:
-            last_week_file = request.files["last_week_image"]
-            current_week_file = request.files["current_week_image"]
-            
-            last_week_hash = calculate_file_hash(last_week_file)
-            current_week_hash = calculate_file_hash(current_week_file)
-            
-            if last_week_hash == current_week_hash:
-                error_message = "Duplicate field images detected. Please upload two different images for meaningful comparison analysis."
-                return render_template("comparison.html", error_message=error_message)
-        except Exception as exc:
-            logger.error("Hashing error: %s", exc)
-
-        try:
-            old_filename, old_image, old_rgb = read_uploaded_image(request.files["last_week_image"])
-            new_filename, new_image, new_rgb = read_uploaded_image(request.files["current_week_image"])
-
-            old_results = analyze_image(old_rgb)
-            new_results = analyze_image(new_rgb)
-
-            _, yolo_model = model_manager.load_models()
-            if old_results.get("disease") is None or new_results.get("disease") is None:
-                error_message = "Unable to analyze one or both uploaded images. Please upload valid field images and try again."
-            elif old_results.get("warnings") and new_results.get("warnings") and yolo_model is not None:
-                error_message = "Unable to verify cotton crop in both images. Please upload clearer field photos with visible plants and try again."
-
-            if error_message:
-                return render_template(
-                    "comparison.html",
-                    error_message=error_message,
-                    old_filename=old_filename,
-                    new_filename=new_filename,
-                    old_image_b64=encode_image_for_display(old_image),
-                    new_image_b64=encode_image_for_display(new_image),
-                )
-
-            comparison_result = build_comparison_result(old_results, new_results)
-            return render_template(
-                "comparison.html",
-                old_results=old_results,
-                new_results=new_results,
-                comparison=comparison_result,
-                old_filename=old_filename,
-                new_filename=new_filename,
-                old_image_b64=encode_image_for_display(old_image),
-                new_image_b64=encode_image_for_display(new_image),
-                timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            )
-        except Exception as exc:
-            logger.error("Comparison analysis error: %s", exc)
-            error_message = "Unable to compare field images right now. Please try again with clearer crop photos."
-            return render_template(
-                "comparison.html",
-                error_message=error_message,
-                old_filename=old_filename,
-                new_filename=new_filename,
-                old_image_b64=encode_image_for_display(old_image) if old_image is not None else None,
-                new_image_b64=encode_image_for_display(new_image) if new_image is not None else None,
-            )
-    return render_template("comparison.html")
-
-
-@app.route("/demo")
-def demo():
-    try:
-        example_disease_probs = [0.08, 0.02, 0.01, 0.10, 0.04, 0.65, 0.05, 0.05]
-        demo_disease = {
-            "predicted_class": "Healthy",
-            "predicted_class_idx": 5,
-            "confidence": example_disease_probs[5],
-            "model_confidence": round(example_disease_probs[5] * 100, 2),
-            "detected_issue": "Healthy",
-            "all_confidences": {disease_classes[i]: example_disease_probs[i] for i in range(len(disease_classes))},
-            "health_score": 65.0,
-            "raw": [example_disease_probs],
-            "is_uncertain": False,
-            "is_ambiguous": False,
-            "interpretation_message": "Healthy crop detected with moderate confidence."
-        }
-        demo_growth_boxes = [
-            {"class_id": 3, "class_name": "Matured Cotton Boll", "confidence": 0.91, "bbox": [120, 80, 210, 155]},
-            {"class_id": 4, "class_name": "Split Cotton Boll", "confidence": 0.70, "bbox": [300, 120, 390, 210]},
-        ]
-        demo_growth = {
-            "main_class": "Matured Cotton Boll",
-            "main_class_idx": 3,
-            "confidence": 0.91,
-            "boxes": demo_growth_boxes,
-            "raw": demo_growth_boxes,
-        }
-
-        synthetic_bgr = np.zeros((384, 512, 3), dtype=np.uint8)
-        synthetic_bgr[:, :] = [30, 40, 45]
-        cv2.circle(synthetic_bgr, (200, 220), 120, (34, 139, 34), -1)
-        cv2.circle(synthetic_bgr, (320, 260), 100, (46, 139, 87), -1)
-        cv2.circle(synthetic_bgr, (120, 280), 90, (34, 120, 34), -1)
-        cv2.line(synthetic_bgr, (256, 384), (256, 200), (42, 75, 124), 12)
-        cv2.line(synthetic_bgr, (256, 260), (140, 180), (42, 75, 124), 8)
-        cv2.line(synthetic_bgr, (256, 220), (380, 150), (42, 75, 124), 8)
-        cv2.circle(synthetic_bgr, (220, 200), 15, (40, 50, 139), -1)
-        cv2.circle(synthetic_bgr, (215, 195), 5, (20, 30, 80), -1)
-        cv2.circle(synthetic_bgr, (180, 240), 10, (40, 50, 139), -1)
-        cv2.ellipse(synthetic_bgr, (165, 117), (40, 30), 0, 0, 360, (50, 180, 100), -1)
-        cv2.ellipse(synthetic_bgr, (165, 117), (40, 30), 0, 0, 360, (40, 140, 80), 2)
-        cv2.line(synthetic_bgr, (165, 87), (165, 75), (42, 75, 124), 4)
-        cv2.circle(synthetic_bgr, (330, 165), 20, (245, 245, 245), -1)
-        cv2.circle(synthetic_bgr, (360, 165), 20, (245, 245, 245), -1)
-        cv2.circle(synthetic_bgr, (345, 150), 20, (255, 255, 255), -1)
-        cv2.circle(synthetic_bgr, (345, 180), 20, (230, 230, 230), -1)
-        cv2.ellipse(synthetic_bgr, (345, 185), (35, 15), 0, 0, 360, (30, 50, 90), -1)
-
-        synthetic_rgb = cv2.cvtColor(synthetic_bgr, cv2.COLOR_BGR2RGB)
-        mock_overlay = apply_heatmap_on_image(synthetic_rgb, generate_mock_heatmap(synthetic_rgb))
-        image_b64 = encode_image_for_display(synthetic_rgb)
-        grad_cam_image_b64 = encode_image_for_display(mock_overlay)
-
-        demo_disease["heatmap_b64"] = grad_cam_image_b64
-        example_json = {
-            "disease": demo_disease,
-            "growth": demo_growth,
-            "recommendations": generate_recommendations(demo_disease, demo_growth),
-            "grad_cam_image_b64": grad_cam_image_b64,
-        }
-
-        return render_template(
-            "results.html",
-            results=example_json,
-            filename="demo_cotton.jpg",
-            image_b64=image_b64,
-            img_shape={"width": 512, "height": 384},
-            raw_json=json.dumps(example_json, indent=2),
-            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            grad_cam_image_b64=grad_cam_image_b64,
-            disease_info=disease_info_map.get("Healthy", {}),
-        )
-    except Exception as e:
-        logger.error(f"Demo route failed: {e}")
-        return redirect(url_for("index"))
-
-
-@app.route("/api/chat_test", methods=["GET"])
-def api_chat_test():
-    return jsonify({"status": "ok"})
-
-
-@app.route("/api/chat", methods=["POST"])
-@app.route("/api/chat/", methods=["POST"])
-def api_chat():
-    data = request.get_json(silent=True)
-    if not data or "message" not in data:
-        return jsonify({"reply": "I'm sorry, I didn't receive a message."}), 400
-
-    message = str(data["message"]).lower()
-    responses = {
-        r"\b(hello|hi|hey)\b": ["Hello there! How can I assist you with your cotton crop today?", "Hi! Need any help analyzing your farm data?"],
-        r"\b(disease|sick|spots|rot|blight)\b": ["If you're noticing leaf spots or rotting, it could be Bacterial Blight or Target Spot. I highly recommend taking a picture and uploading it to our Analyze tab for an AI diagnosis."],
-        r"\b(yield|harvest|produce)\b": ["Yield depends heavily on the crop's health score and current growth stage. Check out the Dashboard for predictions across your fields!"],
-        r"\b(fertilizer|nutrient|npk|potassium)\b": ["Cotton responds well to a balanced NPK fertilizer. During the blooming and early boll stages, potassium is critical to maximize yield."],
-        r"\b(water|irrigation|dry)\b": ["Maintain regular watering during the blossom phase. However, once bolls mature and start splitting, you should reduce irrigation to prevent rot."],
-        r"\b(pest|worm|aphid|bug)\b": ["Pests like Pink Bollworm and Aphids are common enemies of cotton. I recommend deploying pheromone traps and scouting the fields twice a week."],
-    }
-
-    reply = "I'm your Agri-Vision AI assistant. I specialize in cotton farming, crop diseases, and yield optimization. How can I help you?"
-    for pattern, reply_options in responses.items():
-        if re.search(pattern, message):
-            reply = random.choice(reply_options)
-            break
-    return jsonify({"reply": reply})
-
-
-@app.route("/api/weather")
-def api_weather():
-    lat = request.args.get("lat", type=float)
-    lon = request.args.get("lon", type=float)
-    city = request.args.get("city", type=str)
-
-    if city and not (lat is not None and lon is not None):
-        geo = geocode_city(city)
-        if not geo:
-            return jsonify({"error": f"Could not geocode city: {city}"}), 404
-        lat, lon = geo["lat"], geo["lon"]
-
-    if lat is None or lon is None:
-        return jsonify({"error": "Provide lat & lon, or city"}), 400
-
-    owm_key = os.getenv("OPENWEATHER_API_KEY")
-    weather = get_weather(lat, lon, owm_key)
-    if not weather:
-        return jsonify({"error": "Weather data unavailable"}), 503
-
-    weather["weather_recommendations"] = generate_weather_recommendations(weather)
-    return jsonify({"status": "success", "weather": weather})
-
-
+# --- core api with redis cache & rate limiting ---
 @app.route("/api/analyze", methods=["POST"])
+@limiter.limit("10 per minute")
 def api_analyze():
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "No file selected"}), 400
-    if not is_allowed_image(file.filename):
-        return jsonify({'error': 'Invalid file type. Please upload a valid image.'}), 400
-
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+        
     try:
         file_bytes = np.frombuffer(file.read(), np.uint8)
-
-        if is_pytest_mode():
-            image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-            if image is None:
-                return jsonify({"error": "Invalid image file"}), 400
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            compressed_rgb = resize_image(image_rgb, MAX_INFERENCE_DIMENSION)
-            results = analyze_image(compressed_rgb)
-            if results.get("error"):
-                return jsonify({"error": results["error"]}), 400
-            return jsonify({"status": "success", "timestamp": datetime.now().isoformat(), "results": results}), 200
-
-        from celery_worker import process_inference_task
-        task = process_inference_task.delay(file_bytes.tolist())
-        return jsonify({
-            "status": "processing",
-            "task_id": task.id,
-            "message": "Image analysis has started in the background. Use the task_id to poll for results.",
-        }), 202
-
-    except Exception as exc:
-        logger.error("API analysis trigger error: %s", exc)
-        return jsonify({"error": str(exc)}), 500
-
-
-@app.route("/api/task/<task_id>", methods=["GET"])
-def get_task_status(task_id):
-    if is_pytest_mode():
-        return jsonify({
-            "state": "DISABLED",
-            "status": "Async Celery result polling is disabled during tests because inference runs synchronously.",
-            "task_id": task_id,
-        }), 200
-
-    from celery_worker import process_inference_task
-    task = process_inference_task.AsyncResult(task_id)
-
-    if task.state == "PENDING":
-        response = {"state": task.state, "status": "Task is waiting in the queue..."}
-    elif task.state != "FAILURE":
-        response = {
-            "state": task.state,
-            "status": task.info.get("status", "") if isinstance(task.info, dict) else task.info,
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        cache_key = f"inference_cache:{file_hash}"
+        
+        # check cache
+        if redis_client:
+            cached = redis_client.get(cache_key)
+            if cached:
+                logger.info("cache hit - skipping model inference")
+                res = make_response(cached)
+                res.headers['Content-Type'] = 'application/json'
+                res.headers['X-Cache-Hit'] = '1'
+                return res
+                
+        # cache miss - decode and run
+        logger.info("cache miss - running inference")
+        image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        if image is None:
+            return jsonify({'error': 'Invalid image file'}), 400
+            
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        results = analyze_image(image_rgb)
+        
+        resp_data = {
+            "status": "success",
+            "timestamp": datetime.now().isoformat(),
+            "results": results
         }
-        if task.state == "SUCCESS":
-            response["result"] = task.result
-    else:
-        response = {"state": task.state, "status": str(task.info)}
-    return jsonify(response)
+        resp_json = json.dumps(resp_data)
+        
+        # save to redis (24h ttl)
+        if redis_client:
+            redis_client.setex(cache_key, 86400, resp_json)
+            
+        res = make_response(resp_json)
+        res.headers['Content-Type'] = 'application/json'
+        res.headers['X-Cache-Hit'] = '0'
+        return res
+        
+    except Exception as e:
+        logger.error(f"API analysis error: {e}")
+        return jsonify({'error': str(e)}), 500
 
-
-@app.route("/api/analyze_stream", methods=["POST"])
-def api_analyze_stream():
-    def generate():
-        import json as _json
-
-        def event(name: str, progress: int, message: str, data: Optional[Dict[str, Any]] = None):
-            payload = {"step": name, "progress": progress, "message": message}
-            if data is not None:
-                payload["data"] = data
-            return f"data: {_json.dumps(payload)}\n\n"
-
-        try:
-            if "file" not in request.files:
-                yield event("error", 0, "No file uploaded.")
-                return
-            file = request.files["file"]
-            if file.filename == "":
-                yield event("error", 0, "No file selected.")
-                return
-            yield event("upload_received", 10, "File received successfully.")
-        except Exception as exc:
-            yield event("error", 0, f"File error: {str(exc)}")
-            return
-
-        try:
-            safe_filename, image, image_rgb = read_uploaded_image(file)
-            compressed_rgb = resize_image(image_rgb, MAX_INFERENCE_DIMENSION)
-            image_b64 = encode_image_for_display(image_rgb)
-            img_shape = {"width": image.shape[1], "height": image.shape[0]}
-            yield event("preprocessing", 25, "Image preprocessed and compressed.")
-        except Exception as exc:
-            yield event("error", 25, f"Preprocessing failed: {str(exc)}")
-            return
-
-        try:
-            growth = infer_growth_stage(compressed_rgb)
-            yield event("growth_inference", 50, f"Growth stage detected: {growth.get('main_class', 'Unknown')}")
-        except Exception as exc:
-            yield event("error", 50, f"Growth stage inference failed: {str(exc)}")
-            return
-
-        try:
-            disease = infer_disease(compressed_rgb)
-            yield event("disease_inference", 75, f"Disease classified: {disease.get('predicted_class', 'Unknown')} ({round(disease.get('confidence', 0) * 100, 1)}% confidence)")
-        except Exception as exc:
-            yield event("error", 75, f"Disease classification failed: {str(exc)}")
-            return
-
-        try:
-            results = {
-                "disease": disease,
-                "growth": growth,
-                "recommendations": generate_recommendations(disease, growth),
-                "error": None,
-            }
-            if growth.get("main_class") is None:
-                results["warnings"] = ["Growth stage could not be confidently detected.", "Disease analysis is still provided based on the uploaded crop image."]
-            yield event("recommendations", 90, "Recommendations generated.")
-        except Exception as exc:
-            yield event("error", 90, f"Recommendation generation failed: {str(exc)}")
-            return
-
-        weather, yield_estimate = None, None
-        try:
-            lat = request.form.get("lat", type=float)
-            lon = request.form.get("lon", type=float)
-            city = request.form.get("city", type=str)
-
-            if lat is not None and lon is not None:
-                owm_key = os.getenv("OPENWEATHER_API_KEY")
-                weather = get_weather(lat, lon, owm_key)
-            elif city:
-                geo = geocode_city(city)
-                if geo:
-                    owm_key = os.getenv("OPENWEATHER_API_KEY")
-                    weather = get_weather(geo["lat"], geo["lon"], owm_key)
-
-            if weather and results.get("disease") and results.get("growth"):
-                results["recommendations"] = (results.get("recommendations", []) + generate_weather_recommendations(weather))[:6]
-                results["weather"] = weather
-
-            field_acres = request.form.get("field_acres", type=float) or 1.0
-            if results.get("disease") and results.get("growth"):
-                yield_estimate = predict_yield(results["disease"]["health_score"], results["growth"].get("main_class", "Unknown"), field_acres)
-        except Exception as exc:
-            logger.warning("Weather/yield enrichment failed: %s", exc)
-
-        try:
-            complete_payload = {
-                "results": results,
-                "filename": safe_filename,
-                "image_b64": image_b64,
-                "img_shape": img_shape,
-                "raw_json": _json.dumps(results, indent=2),
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "weather": weather,
-                "yield_estimate": yield_estimate,
-            }
-            yield event("complete", 100, "Analysis complete!", data=complete_payload)
-        except Exception as exc:
-            yield event("error", 95, f"Failed to finalise results: {str(exc)}")
-            return
-
-    return Response(stream_with_context(generate()), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
-
-@app.route("/analyze_result", methods=["POST"])
-def analyze_result():
-    try:
-        raw = request.form.get("payload", "")
-        if not raw:
-            flash("No analysis data received.", "error")
-            return redirect(url_for("analyze"))
-
-        payload = json.loads(raw)
-        results = payload.get("results", {})
-        filename = payload.get("filename", "unknown")
-        image_b64 = payload.get("image_b64", "")
-        img_shape = payload.get("img_shape", {})
-        raw_json = payload.get("raw_json", "{}")
-        timestamp = payload.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        weather = payload.get("weather")
-        yield_estimate = payload.get("yield_estimate")
-
-        if results.get("error"):
-            flash(results["error"], "error")
-            return redirect(url_for("analyze"))
-
-        return render_template(
-            "results.html",
-            results=results,
-            filename=filename,
-            image_b64=image_b64,
-            img_shape=img_shape,
-            raw_json=raw_json,
-            timestamp=timestamp,
-            weather=weather,
-            yield_estimate=yield_estimate,
-        )
-    except Exception as exc:
-        logger.error("analyze_result error: %s", exc)
-        flash(f"Failed to render results: {str(exc)}", "error")
-        return redirect(url_for("analyze"))
-
-
-if __name__ == "__main__":
-    logger.info("=" * 60)
-    logger.info("Agri-Vision Cotton Analysis System")
-    logger.info("=" * 60)
-    logger.info("Starting Flask application...")
-    logger.info("Open http://localhost:5000 in your browser")
-    logger.info("Endpoints:")
-    logger.info("/              - Home page")
-    logger.info("/analyze       - Upload and analyze image")
-    logger.info("/comparison    - Compare two field images")
-    logger.info("/dashboard     - Multi-farm comparison dashboard")
-    logger.info("/demo          - View demo results")
-    logger.info("/api/analyze   - API endpoint (POST)")
-    logger.info("/health        - Health check")
-    logger.info("=" * 60)
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
 
     ensure_models_loaded()
+    
+    try:
+        registry.register_model(
+            model_type="resnet", version="v1.0", path="models/cotton_crop_disease_classification/full_resnet50_model.pth", accuracy=0.9983
+        )
+        registry.register_model(
+            model_type="yolo", version="v1.0", path="models/cotton_crop_growth_stage_prediction/best.pt", accuracy=0.6006
+        )
+        registry.set_active_model("resnet", "v1.0")
+        registry.set_active_model("yolo", "v1.0")
+    except Exception as e:
+        logger.error(f"Error registering models: {e}")
     
     is_debug = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
     app.run(debug=is_debug, host="0.0.0.0", port=5000)
