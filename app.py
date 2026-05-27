@@ -1549,8 +1549,11 @@ def api_chat():
         if re.search(pattern, message):
             reply = random.choice(reply_options)
             break
-    return jsonify({"reply": reply})
+    else:
+        # If the loop finishes without hitting 'break', it means no pattern matched
+        logger.info(f"Unmatched chat query: {message}")
 
+    return jsonify({"reply": reply})
 
 @app.route("/api/weather")
 def api_weather():
