@@ -1,0 +1,49 @@
+{
+  "home": "Home",
+
+  "hero_badge": "AI-DRIVEN COTTON INTEGRATION",
+
+  "hero_title_1": "AI-Powered",
+  "hero_title_2": "Cotton Crop Intelligence",
+
+  "hero_desc": "Analyze crop maturity, detect plant health issues, and optimize harvest timing using smart real-time deep learning analytics.",
+
+  "analyze_btn": "Analyze Image",
+  "demo_btn": "View Demo",
+
+  "tools_heading": "Precision Farming Tools",
+
+  "tools_desc": "Equip yourself with state-of-the-art AI analysis specifically tuned for cotton crop cycles and common health stressors.",
+
+  "growth_detection": "Growth Detection",
+  "growth_desc": "Identify critical cotton growth stages from vegetative to harvest-ready with precision.",
+
+  "health_assessment": "Health Assessment",
+  "health_desc": "Early detection of diseases and pests like Pink Bollworm before they impact your yield.",
+
+  "smart_diagnostics": "Smart Diagnostics",
+  "diagnostics_desc": "Leverage deep learning models trained on thousands of cotton-specific agricultural images.",
+
+  "harvest_optimizer": "Harvest Optimizer",
+  "harvest_desc": "Receive data-driven recommendations on the optimal window for cotton bursting and collection.",
+
+  "chat_placeholder": "Type a message...",
+
+  "chat_welcome": "Hello! I'm your Agri-Vision AI assistant. Ask me anything about cotton crops, farming practices, pests, or disease prevention.",
+
+  "footer_subtitle": "Empowering cotton farmers with AI-driven insights.",
+
+  "logout": "Logout",
+
+  "demo_nav": "Demo",
+  "tutorials": "Tutorials",
+  "stories": "Stories",
+  "login": "Login",
+  "signup": "Sign Up",
+
+  "analyze": "Analyze",
+  "dashboard": "Dashboard",
+  "support": "Support",
+  "comparison": "Field Comparison",
+  "brand_name": "Agri-Vision"
+}
