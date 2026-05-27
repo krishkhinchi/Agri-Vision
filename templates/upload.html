@@ -752,6 +752,76 @@
             alert('Please select a crop image first.');
             return;
         }
+ 
+        const reader  = response.body.getReader();
+        const decoder = new TextDecoder();
+        let   buffer  = '';
+ 
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+ 
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();   // keep incomplete last line
+ 
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                let parsed;
+                try {
+                    parsed = JSON.parse(line.slice(6));
+                } catch {
+                    continue;
+                }
+ 
+                const { step, progress, message, data } = parsed;
+ 
+                // Update progress bar
+                progressBar.style.width = progress + '%';
+                statusMsg.textContent = message;
+ 
+                if (step === 'error') {
+                    // Mark active steps as error-step
+                    steps.forEach(s => {
+                        const el = document.getElementById('step-' + s);
+                        if (el && el.classList.contains('active')) {
+                            el.className = 'stream-step error-step';
+                            el.textContent = '❌ ' + el.dataset.label;
+                        }
+                    });
+                    statusMsg.textContent = '❌ ' + message;
+                    statusMsg.style.color = '#ff6b6b';
+                    progressBar.style.background = '#ff6b6b';
+                    
+                    const previewContainer = document.getElementById('previewContainer');
+                    const preview = document.getElementById('imagePreview');
+
+                    if (previewContainer && preview && preview.src) {
+                        previewContainer.style.display = 'block';
+                        preview.style.display = 'block';
+                    }
+                    isAnalyzing = false;
+                    submitBtn.style.display = '';
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-magnifying-glass"></i> Try Again';
+                    return;
+                }
+ 
+                // Map backend step to our frontend 4 UI steps:
+                // upload: upload_received
+                // analyze: preprocessing, growth_inference, disease_inference
+                // predict: recommendations
+                // complete: complete
+                let uiStep = '';
+                if (step === 'upload_received') {
+                    uiStep = 'upload';
+                } else if (step === 'preprocessing' || step === 'growth_inference' || step === 'disease_inference') {
+                    uiStep = 'analyze';
+                } else if (step === 'recommendations') {
+                    uiStep = 'predict';
+                } else if (step === 'complete') {
+                    uiStep = 'complete';
+                }
 
         isAnalyzing = true;
         submitBtn.disabled = true;
