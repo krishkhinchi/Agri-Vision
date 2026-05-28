@@ -2067,27 +2067,28 @@ nav a[href="/model-admin"]:hover {
 .comparison-score-bar { width: 100%; height: 10px; border-radius: 999px; background: rgba(46, 139, 87, 0.12); overflow: hidden; margin-top: 1rem; }
 .comparison-score-bar span { display: block; height: 100%; min-width: 3%; max-width: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--emerald-green), var(--fresh-green)); }
 
-.remove-image-btn {
-    display: none;
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    width: 42px;
-    height: 42px;
-    border: none;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.72);
-    color: white;
-    cursor: pointer;
-    z-index: 20;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
-    font-weight: bold;
-    backdrop-filter: blur(4px);
+.story-grid .card-body {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
 }
 
-.remove-image-btn:hover { background: rgba(0, 0, 0, 0.9); transform: scale(1.05); }
+.story-card {
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.story-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.12);
+}
+
+@media (max-width: 768px) {
+    .stories-grid {
+        gap: 1.5rem;
+    }
+}
 
 .ai-summary-card ul { list-style: none; display: grid; gap: 0.85rem; }
 .ai-summary-card li { display: flex; align-items: flex-start; gap: 0.75rem; color: var(--deep-forest); padding: 0.9rem; border-radius: 14px; background: rgba(46, 139, 87, 0.07); }
@@ -2747,6 +2748,14 @@ main{
 
     .dashboard-card h3, .dashboard-card div, .dashboard-card span, .analysis-footer { color: #000000 !important; }
 
-    .fade-in { opacity: 1 !important; transform: none !important; color: black !important; }
-
+[data-theme="dark"] .agri-scan-history-empty {
+    background: rgba(22, 27, 33, 0.6);
+    border-color: rgba(60, 179, 113, 0.15);
+    color: rgba(224, 224, 224, 0.8);
 }
+
+
+/* i18n Language Selector */
+.lang-selector-container { display: flex; align-items: center; gap: 8px; margin-left: 10px; }
+.lang-selector { padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color, #ccc); background: var(--bg-card, #fff); color: var(--text-color, #333); font-family: inherit; font-size: 0.9em; cursor: pointer; }
+.lang-selector:focus { outline: 2px solid var(--emerald-green, #2e8b57); }

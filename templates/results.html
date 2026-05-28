@@ -284,6 +284,34 @@
         </ul>
         {% endif %}
       </div>
+
+      {% if image_b64 and (grad_cam_image_b64 or heatmap_image_path) %}
+      <div class="result-card">
+        <h2 class="results-section-title"><i class="fas fa-brain"></i> Grad-CAM Explainability</h2>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;">
+          <div>
+            <p style="margin: 0 0 0.5rem; color: var(--text-muted); font-weight: 600;">Original Image</p>
+            <img src="data:image/jpeg;base64,{{ image_b64 }}" alt="Original uploaded crop" class="result-img" />
+          </div>
+          <div>
+            <p style="margin: 0 0 0.5rem; color: var(--text-muted); font-weight: 600;">Grad-CAM Heatmap Overlay</p>
+            {% if heatmap_image_path %}
+            <img src="/{{ heatmap_image_path }}" alt="Grad-CAM heatmap overlay" class="result-img" />
+            {% else %}
+            <img src="data:image/jpeg;base64,{{ grad_cam_image_b64 }}" alt="Grad-CAM heatmap overlay" class="result-img" />
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="agri-leaf-compare-wrap fade-in">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.5rem;">
+          <div>
+            <h2 class="results-section-title" style="margin-top: 0; margin-bottom: 0.2rem;"><i class="fas fa-microscope"></i> Visual Health Comparison</h2>
+            <p style="color: var(--text-muted); font-size: 0.95rem; margin: 0;">
+              Compare the expected healthy appearance with your uploaded crop image.
+            </p>
       
       {% if weather %}
       <div class="weather-card" style="
@@ -926,6 +954,367 @@
 
     renderScanHistory();
     });
+
+    // PDF Export Functions
+    function exportToPDF() {
+      const btn = event.target.closest('button');
+      const originalHTML = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+
+      try {
+        // Collect analysis data from the page
+        const diseaseElement = document.querySelector('[data-i18n="res_growth_title"]');
+        const disease = {
+          detected_issue: '{{ disease.detected_issue|default("Unknown") }}',
+          model_confidence: {{ disease.model_confidence|default(0)|float|round(1) }},
+          health_score: {{ disease.health_score|default(0)|float|round(1) }}
+        };
+        const growth = {
+          main_class: '{{ growth.main_class|default("Unknown") }}',
+          confidence: {{ growth.confidence|default(0)|float|round(1) }}
+        };
+        const recommendations = {{ results.recommendations|default([])|tojson }};
+        const timestamp = '{{ timestamp|default("") }}';
+        const imageB64 = document.getElementById('result-img')?.src || '{{ image_b64|default("") }}';
+
+        // Get weather data if present
+        const weatherData = {};
+        {% if weather %}
+          weatherData.temperature = {{ weather.temperature|default('null') }};
+          weatherData.humidity = {{ weather.humidity|default('null') }};
+          weatherData.precipitation = {{ weather.precipitation|default('null') }};
+          weatherData.description = '{{ weather.description|default("") }}';
+        {% endif %}
+
+        // Get yield data if present
+        const yieldData = {};
+        {% if yield_estimate %}
+          yieldData.yield_min_acre = {{ yield_estimate.yield_min_acre|default('null') }};
+          yieldData.yield_max_acre = {{ yield_estimate.yield_max_acre|default('null') }};
+          yieldData.yield_min_total = {{ yield_estimate.yield_min_total|default('null') }};
+          yieldData.yield_max_total = {{ yield_estimate.yield_max_total|default('null') }};
+        {% endif %}
+
+        // Prepare payload
+        const payload = {
+          disease_detected: disease.detected_issue,
+          disease_confidence: disease.model_confidence,
+          health_score: disease.health_score,
+          growth_stage: growth.main_class,
+          growth_confidence: growth.confidence,
+          image_b64: imageB64,
+          recommendations: recommendations,
+          timestamp: timestamp,
+          weather_data: weatherData,
+          yield_estimate: yieldData
+        };
+
+        // Send to backend
+        fetch('/api/analyze/download-report', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload)
+        })
+        .then(response => {
+          if (!response.ok) {
+            return response.json().then(data => {
+              throw new Error(data.error || 'Failed to generate PDF');
+            });
+          }
+          return response.blob();
+        })
+        .then(blob => {
+          // Create download link
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `agri_vision_crop_analysis_${new Date().toISOString().split('T')[0]}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+
+          btn.disabled = false;
+          btn.innerHTML = originalHTML;
+          showNotification('PDF downloaded successfully!', 'success');
+        })
+        .catch(error => {
+          console.error('PDF generation error:', error);
+          btn.disabled = false;
+          btn.innerHTML = originalHTML;
+          showNotification(`Error generating PDF: ${error.message}`, 'error');
+
+          // Fallback to screenshot PDF
+          console.log('Attempting fallback screenshot PDF...');
+          exportToScreenshotPDF();
+        });
+      } catch (error) {
+        console.error('Error in exportToPDF:', error);
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+        showNotification('Error preparing PDF export', 'error');
+      }
+    }
+
+    function exportToScreenshotPDF() {
+      const btn = event?.target?.closest('button');
+      if (btn) {
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating screenshot PDF...';
+      }
+
+      try {
+        const element = document.querySelector('.results-card');
+        if (!element) {
+          throw new Error('Results element not found');
+        }
+
+        html2canvas(element, {
+          scale: 2,
+          logging: false,
+          backgroundColor: '#ffffff'
+        }).then(canvas => {
+          const imgData = canvas.toDataURL('image/png');
+          const pdf = new jsPDF({
+            orientation: 'portrait',
+            unit: 'mm',
+            format: 'a4'
+          });
+
+          const imgWidth = 210;
+          const pageHeight = 295;
+          const imgHeight = (canvas.height * imgWidth) / canvas.width;
+          let heightLeft = imgHeight;
+          let position = 0;
+
+          pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+          heightLeft -= pageHeight;
+
+          while (heightLeft >= 0) {
+            position = heightLeft - imgHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+            heightLeft -= pageHeight;
+          }
+
+          pdf.save(`agri_vision_crop_analysis_${new Date().toISOString().split('T')[0]}.pdf`);
+
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-file-pdf"></i> Download PDF Report';
+          }
+          showNotification('Screenshot PDF created successfully!', 'success');
+        }).catch(error => {
+          console.error('Screenshot error:', error);
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-file-pdf"></i> Download PDF Report';
+          }
+          showNotification('Failed to create screenshot PDF', 'error');
+        });
+      } catch (error) {
+        console.error('Error in exportToScreenshotPDF:', error);
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="fas fa-file-pdf"></i> Download PDF Report';
+        }
+        showNotification('Error creating PDF', 'error');
+      }
+    }
+
+    function exportExplainabilityReport() {
+      const btn = event.target.closest('button');
+      const originalHTML = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+
+      try {
+        const element = document.getElementById('explainability-dashboard');
+        if (!element) {
+          throw new Error('Explainability dashboard not found');
+        }
+
+        html2canvas(element, {
+          scale: 2,
+          logging: false,
+          backgroundColor: '#ffffff'
+        }).then(canvas => {
+          const imgData = canvas.toDataURL('image/png');
+          const pdf = new jsPDF({
+            orientation: 'portrait',
+            unit: 'mm',
+            format: 'a4'
+          });
+
+          const imgWidth = 210;
+          const pageHeight = 295;
+          const imgHeight = (canvas.height * imgWidth) / canvas.width;
+          let heightLeft = imgHeight;
+          let position = 0;
+
+          pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+          heightLeft -= pageHeight;
+
+          while (heightLeft >= 0) {
+            position = heightLeft - imgHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+            heightLeft -= pageHeight;
+          }
+
+          pdf.save(`agri_vision_explainability_report_${new Date().toISOString().split('T')[0]}.pdf`);
+
+          btn.disabled = false;
+          btn.innerHTML = originalHTML;
+          showNotification('Explainability report downloaded successfully!', 'success');
+        }).catch(error => {
+          console.error('PDF generation error:', error);
+          btn.disabled = false;
+          btn.innerHTML = originalHTML;
+          showNotification('Error generating explainability PDF', 'error');
+        });
+      } catch (error) {
+        console.error('Error in exportExplainabilityReport:', error);
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+        showNotification('Error creating explainability report', 'error');
+      }
+    }
+
+    function showNotification(message, type = 'info') {
+      const notification = document.createElement('div');
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#17a2b8'};
+        color: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 9999;
+        animation: slideIn 0.3s ease;
+        font-size: 14px;
+        font-weight: 500;
+      `;
+      notification.textContent = message;
+      document.body.appendChild(notification);
+
+      setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => notification.remove(), 300);
+      }, 3000);
+    }
+
+    // Add animation styles if not present
+    if (!document.getElementById('notification-styles')) {
+      const style = document.createElement('style');
+      style.id = 'notification-styles';
+      style.textContent = `
+        @keyframes slideIn {
+          from { transform: translateX(400px); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideOut {
+          from { transform: translateX(0); opacity: 1; }
+          to { transform: translateX(400px); opacity: 0; }
+        }
+      `;
+      document.head.appendChild(style);
+    }
     </script>
 
+    const imgData = canvas.toDataURL('image/jpeg', 1.0);
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = pdf.internal.pageSize.getHeight();
+    
+    const margin = 10;
+    const imgWidth = pdfWidth - (margin * 2);
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    
+    let heightLeft = imgHeight;
+    let position = margin;
+
+    // Add first page
+    pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight);
+    heightLeft -= (pdfHeight - margin * 2);
+
+    // Add subsequent pages if content is long
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight + margin;
+      pdf.addPage();
+      pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight);
+      heightLeft -= (pdfHeight - margin * 2);
+    }
+
+    pdf.save(`Agri-Vision-Analysis-Report-${new Date().getTime()}.pdf`);
+  } catch (error) {
+    console.error('PDF Error:', error);
+    alert('Could not generate PDF directly. Using browser print as fallback.');
+    window.print();
+  } finally {
+    exportBtn.innerHTML = originalBtnText;
+    exportBtn.disabled = false;
+    // Cleanup
+    excludeElements.forEach(el => el.removeAttribute('data-html2canvas-ignore'));
+  }
+}
+
+function readInsights() {
+  var insights = [];
+  {% if results.farmer_insights %}
+  {% for insight in results.farmer_insights %}
+  insights.push("{{ insight | replace('"', '\\"') }}");
+  {% endfor %}
+  {% endif %}
+  {% if yield_estimate %}
+  insights.push("Based on current conditions, your estimated cotton yield is between {{ yield_estimate.yield_min_acre }} and {{ yield_estimate.yield_max_acre }} quintals per acre.");
+  {% endif %}
+
+  if (!window.speechSynthesis) {
+    alert("Speech synthesis is not supported in this browser.");
+    return;
+
+  function exportExplainabilityReport() {
+    window.print();
+  }
+
+  function readInsights() {
+    var insights = [];
+    {% if results.farmer_insights %}
+    {% for insight in results.farmer_insights %}
+    insights.push("{{ insight | replace('"', '\\"') }}");
+    {% endfor %}
+    {% endif %}
+    {% if results.yield_prediction %}
+    insights.push("Estimated yield is {{ results.yield_prediction.estimated_yield_kg_per_acre }} kilograms per acre.");
+    {% endif %}
+
+    if (!window.speechSynthesis) {
+      alert("Speech synthesis is not supported in this browser.");
+      return;
+    }
+    window.speechSynthesis.cancel();
+    var utterance = new SpeechSynthesisUtterance("Here are your crop analysis insights. " + insights.join(" "));
+    window.speechSynthesis.speak(utterance);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+      const cropHistory = JSON.parse(localStorage.getItem("cropHistory")) || [];
+      const scanData = {
+          disease: `{{ disease.detected_issue|default("Unknown") }}`,
+          confidence: `{{ disease.model_confidence|default(0)|float|round(2) }}%`,
+          treatment: `{{ disease_info.get('treatment', 'No treatment available.') }}`,
+          date: `{{ timestamp }}`,
+          image: "data:image/jpeg;base64,{{ image_b64 }}"
+      };
+      cropHistory.unshift(scanData);
+      localStorage.setItem("cropHistory", JSON.stringify(cropHistory));
+  });
+</script>
+
+{% endblock %}
     {% endblock %}

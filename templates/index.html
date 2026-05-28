@@ -8,6 +8,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Agri-Vision | AI-Powered Cotton Crop Intelligence</title>
     <link rel="icon" type="image/png" sizes="512x512" href="/static/favicon.png">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
     <script>
         (function() {
             try {
@@ -16,9 +17,16 @@
                 if (localTheme === 'dark' || (!localTheme && sysTheme)) {
                     document.documentElement.setAttribute('data-theme', 'dark');
                 }
+                
+                // SSR-safe inline initialization for language
+                var localLang = localStorage.getItem('i18n_lang');
+                if (localLang) {
+                    document.documentElement.lang = localLang;
+                }
             } catch (e) {}
         })();
     </script>
+    <script src="{{ url_for('static', filename='js/i18n.js') }}" defer></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <!-- PDF.js for PDF to Image conversion -->
@@ -500,59 +508,38 @@ src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit
                 </span>
             </a>
             <ul class="nav-menu">
-                <li><a href="/" data-i18n="home">Home</a></li>
-            <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
-                <i class="fas fa-bars"></i>
-            </button>
-            <ul class="nav-menu" id="nav-menu">
-                <li><a href="/">Home</a></li>
-                {% if current_user.is_authenticated %}
-                    <li><a href="/analyze">Analyze</a></li>
-                    <li><a href="/batch" style="font-weight: bold; color: #667eea;">📦 Batch</a></li>
-                    <li><a href="/disease-map" style="font-weight: bold; color: #667eea;">🗺️ Disease Map</a></li>
-                    <li><a href="/dashboard" style="font-weight: bold; color: #667eea;">📊 Dashboard</a></li>
-                    <li><a href="/reports" style="font-weight: bold; color: #667eea;">📄 Reports</a></li>
-                    <li><a href="/disease-database" style="font-weight: bold; color: #667eea;">📚 Disease DB</a></li>
-                    <li><a href="/symptom-checker" style="font-weight: bold; color: #667eea;">🔍 Symptom Checker</a></li>
-                    <li><a href="/disease-forecast" style="font-weight: bold; color: #667eea;">🌤️ Disease Forecast</a></li>
-                    <li><a href="/history">History</a></li>
-                    <li><a href="/profile">Profile</a></li>
-                    {% if current_user.is_researcher() %}
-                        <li><a href="/model-admin" style="font-weight: bold; color: #667eea;">🤖 Admin</a></li>
-                    {% endif %}
-                    <li>
-                        <a href="/logout" style="color: #ef4444;">
-                            <i class="fas fa-sign-out-alt"></i>
-                        
-                            <span data-i18n="logout">
-                                Logout
-                            </span>
-                        </a>
-                    </li>
-                {% else %}
-                    <li><a href="/demo" data-i18n="demo_nav">Demo</a></li>
-                    <li><a href="/tutorials" data-i18n="tutorials">Tutorials</a></li>
-                    <li><a href="/stories" data-i18n="stories">Stories</a></li>
-                    <li><a href="/login" class="btn btn-primary">Login</a></li>
-                    <li><a href="/register" class="btn btn-primary" style="background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);">Sign Up</a></li>
-                {% endif %}
-                <!-- Language Selector -->
-                <li class="translate-wrapper">
-                    <div id="google_translate_element"></div>
-                    </li>
+                <li><a href="/" data-i18n="navbar.home">Home</a></li>
+                <li><a href="/analyze" data-i18n="navbar.analyze">Analyze</a></li>
+                <li><a href="/batch" style="font-weight: bold; color: #667eea;" data-i18n="navbar.batch">📦 Batch</a></li>
+                <li><a href="/comparison" data-i18n="navbar.comparison">Field Comparison</a></li>
+
+                <li><a href="/demo" data-i18n="navbar.demo">Demo</a></li>
+                <li><a href="/tutorials" data-i18n="navbar.tutorials">Tutorials</a></li>
+                <li><a href="/stories" data-i18n="navbar.stories">Stories</a></li>
+                <li><a href="/history" data-i18n="navbar.history">History</a></li>
+                <li><a href="/model-admin" style="font-weight: bold; color: #667eea;" data-i18n="navbar.admin">🤖 Admin</a></li>
+                
                 <li>
-                    <select id="languageSwitcher" class="language-switcher">
-                        <option value="en">EN</option>
-                        <option value="hi">हिं</option>
-                        <option value="mr">मराठी</option>
-                        <option value="ta">தமிழ்</option>
-                    </select>
+                    <div class="lang-selector-container">
+                        <i class="fas fa-globe" style="color: var(--text-color, #333);"></i>
+                        <select id="lang-selector" class="lang-selector" aria-label="Select Language">
+                            <option value="en">English</option>
+                            <option value="hi">हिन्दी</option>
+                            <option value="gu">ગુજરાતી</option>
+                            <option value="mr">मराठी</option>
+                            <option value="ta">தமிழ்</option>
+                            <option value="te">తెలుగు</option>
+                            <option value="pa">ਪੰਜਾਬੀ</option>
+                        </select>
+                    </div>
                 </li>
+
                 <li>
                     <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle dark mode">
                         <i class="fas fa-moon"></i>
                     </button>
                 </li>
+                <li><a href="/analyze" class="btn btn-primary" data-i18n="navbar.getStarted">Get Started</a></li>
             </ul>
         </div>
     </nav>
@@ -587,41 +574,27 @@ src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit
                     <div class="hero-badge-wrapper">
                         <span class="hero-badge" data-i18n="hero_badge">
                             <span class="badge-dot"></span>
-                            AI-DRIVEN COTTON INTEGRATION
+                            <span data-i18n="hero.badge">AI-DRIVEN COTTON INTEGRATION</span>
                         </span>
                     </div>
                 
                     <h1 class="typewriter">
-                        <span class="line1" data-i18n="hero_title_1">
-                            AI-Powered
-                        </span>
-                    
-                        <span class="line2" data-i18n="hero_title_2">
-                            Cotton Crop Intelligence
-                        </span>
+                        <span class="line1" data-i18n="hero.title1">AI-Powered</span>
+                        <span class="line2" data-i18n="hero.title2">Cotton Crop Intelligence</span>
                     </h1>
                 
-                    <p data-i18n="hero_desc">
-                        Analyze crop maturity, detect plant health issues,
-                        and optimize harvest timing using smart real-time
-                        deep learning analytics.
+                    <p data-i18n="hero.desc">
+                        Analyze crop maturity, detect plant health issues, and optimize
+                        harvest timing using smart real-time deep learning analytics.
                     </p>
                 
                     <div class="hero-cta">
                         <a href="/analyze" class="btn btn-primary">
-                            <i class="fas fa-camera"></i>
-
-                            <span data-i18n="analyze_btn">
-                                Analyze Image
-                            </span>
+                            <i class="fas fa-camera"></i> <span data-i18n="hero.analyzeBtn">Analyze Image</span>
                         </a>
                         
                         <a href="/demo" class="btn btn-secondary">
-                            <i class="fas fa-play-circle"></i>
-
-                            <span data-i18n="demo_btn">
-                                View Demo
-                            </span>
+                            <i class="fas fa-play-circle"></i> <span data-i18n="hero.demoBtn">View Demo</span>
                         </a>
                     </div>
                 </div>
@@ -814,23 +787,21 @@ src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit
         <div class="footer-container">
             <div class="footer-brand">
                 <h2 class="footer-title"><i class="fas fa-leaf"></i> Agri-Vision</h2>
-                <p class="footer-subtitle" data-i18n="footer_subtitle">
-                    Empowering cotton farmers with AI-driven insights.                    
-                </p>
+                <p class="footer-subtitle" data-i18n="footer.subtitle">Empowering cotton farmers with AI-driven insights.</p>
             </div>
             <div class="footer-links-compact">
-                <a href="/" data-i18n="home">Home</a>
-                <a href="/analyze" data-i18n="analyze">Analyze</a>
-                <a href="/comparison" data-i18n="comparison">Field Comparison</a>
-                <a href="{{ url_for('dashboard') }}" data-i18n="dashboard">Dashboard</a>
-                <a href="/demo" data-i18n="demo_nav">Demo</a>
-                <a href="/tutorials" data-i18n="tutorials">Tutorials</a>
-                <a href="{{ url_for('support') }}" data-i18n="support">Support</a>
+                <a href="/" data-i18n="navbar.home">Home</a>
+                <a href="/analyze" data-i18n="navbar.analyze">Analyze</a>
+                <a href="/comparison" data-i18n="navbar.comparison">Field Comparison</a>
+                <a href="{{ url_for('dashboard') }}" data-i18n="footer.dashboard">Dashboard</a>
+                <a href="/demo" data-i18n="navbar.demo">Demo</a>
+                <a href="/tutorials" data-i18n="navbar.tutorials">Tutorials</a>
+                <a href="{{ url_for('support') }}" data-i18n="footer.support">Support</a>
             </div>
         </div>
         <div class="footer-bottom">
-            <p>&copy; <span id="year"></span> Agri-Vision. All rights reserved.</p>
-            <p>
+            <p>&copy; <span id="year"></span> <span data-i18n="footer.rights">Agri-Vision. All rights reserved.</span></p>
+            <p data-i18n="footer.tagline">
                 Smart Cotton Crop Analysis System
             </p>
             <div class="footer-social">
@@ -1196,4 +1167,5 @@ setInterval(createLeaf, 150);
 
 </script>
 </body>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </html>

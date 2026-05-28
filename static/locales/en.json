@@ -1,0 +1,29 @@
+{
+  "navbar": {
+    "home": "Home",
+    "analyze": "Analyze",
+    "batch": "📦 Batch",
+    "comparison": "Field Comparison",
+    "demo": "Demo",
+    "tutorials": "Tutorials",
+    "stories": "Stories",
+    "history": "History",
+    "admin": "🤖 Admin",
+    "getStarted": "Get Started"
+  },
+  "hero": {
+    "badge": "AI-DRIVEN COTTON INTEGRATION",
+    "title1": "AI-Powered",
+    "title2": "Cotton Crop Intelligence",
+    "desc": "Analyze crop maturity, detect plant health issues, and optimize harvest timing using smart real-time deep learning analytics.",
+    "analyzeBtn": "Analyze Image",
+    "demoBtn": "View Demo"
+  },
+  "footer": {
+    "subtitle": "Empowering cotton farmers with AI-driven insights.",
+    "dashboard": "Dashboard",
+    "support": "Support",
+    "rights": "Agri-Vision. All rights reserved.",
+    "tagline": "Smart Cotton Crop Analysis System"
+  }
+}

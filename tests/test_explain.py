@@ -4,6 +4,7 @@ import base64
 import hashlib
 import numpy as np
 import pytest
+import torch
 from PIL import Image
 import cv2
 
@@ -21,6 +22,18 @@ def valid_image():
     Image.new("RGB", (100, 100), color="green").save(img_byte_arr, format="PNG")
     img_byte_arr.seek(0)
     return img_byte_arr
+
+
+class MiniResNet(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layer4 = torch.nn.Sequential(torch.nn.Conv2d(3, 4, kernel_size=3, padding=1))
+        self.fc = torch.nn.Linear(4, len(app.disease_classes))
+
+    def forward(self, x):
+        x = self.layer4(x)
+        x = torch.mean(x, dim=(2, 3))
+        return self.fc(x)
 
 def test_generate_pure_heatmap():
     dummy_img = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -58,9 +71,14 @@ def test_api_explain_invalid_extension(client):
     res_data = json.loads(resp.data)
     assert "Invalid file type" in res_data["error"]
 
-def test_grad_cam_cache():
+def test_grad_cam_cache(monkeypatch):
     # Clear cache first
     app.GRAD_CAM_CACHE.clear()
+    model = MiniResNet()
+    monkeypatch.setattr(app.model_manager, "resnet_model", model)
+    monkeypatch.setattr(app.model_manager, "yolo_model", None)
+    monkeypatch.setattr(app.model_manager, "loaded", True)
+    monkeypatch.setattr(app, "resnet_model", model)
     
     dummy_img = np.zeros((64, 64, 3), dtype=np.uint8)
     image_hash = hashlib.sha256(dummy_img.tobytes()).hexdigest()
@@ -78,6 +96,26 @@ def test_grad_cam_cache():
     res2 = app.analyze_image(dummy_img)
     assert res1["grad_cam_image_b64"] == res2["grad_cam_image_b64"]
     assert res1["heatmap_only_b64"] == res2["heatmap_only_b64"]
+
+
+def test_grad_cam_failure_does_not_break_prediction(monkeypatch):
+    app.GRAD_CAM_CACHE.clear()
+
+    def fail_gradcam(*args, **kwargs):
+        raise RuntimeError("forced gradcam failure")
+
+    model = MiniResNet()
+    monkeypatch.setattr(app.model_manager, "resnet_model", model)
+    monkeypatch.setattr(app.model_manager, "yolo_model", None)
+    monkeypatch.setattr(app.model_manager, "loaded", True)
+    monkeypatch.setattr(app, "resnet_model", model)
+    monkeypatch.setattr(app, "generate_gradcam_explanation", fail_gradcam)
+
+    res = app.analyze_image(np.zeros((64, 64, 3), dtype=np.uint8))
+    assert "disease" in res
+    assert res["disease"]["predicted_class"] in app.disease_classes
+    assert res["explainability"]["available"] is False
+    assert res["explainability"]["status"] == "failed"
 
 def test_grad_cam_cache_eviction():
     app.GRAD_CAM_CACHE.clear()
