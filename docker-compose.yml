@@ -11,7 +11,7 @@ services:
     environment:
       - FLASK_APP=app.py
       - FLASK_ENV=production
-      - SECRET_KEY=${SECRET_KEY:-dev_secret_123}
+      - SECRET_KEY=${SECRET_KEY}
       - PYTHONUNBUFFERED=1
     volumes:
       # Mount for persistent uploads

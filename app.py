@@ -2,7 +2,6 @@
 Agri-Vision Flask Application
 Unified inference for disease classification (ResNet50) and growth stage prediction (YOLOv8)
 """
-
 import hashlib
 import logging
 import os
@@ -16,6 +15,31 @@ from typing import Any, Dict, Optional, Tuple
 from collections import defaultdict
 from io import BytesIO
 
+# Load environment file if python-dotenv is available, but don't require it for tests
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    pass
+_flask_env = os.getenv("FLASK_ENV", "production").lower()
+_secret_key = os.getenv("SECRET_KEY")
+_GENERATED_EPHEMERAL_SECRET = False
+if not _secret_key:
+    if _flask_env in ("development", "dev", "testing") or os.getenv(
+        "AGRI_VISION_ALLOW_DEV_SECRET", "false"
+    ).lower() in ("1", "true", "t"):
+        import secrets
+
+        _secret_key = secrets.token_urlsafe(64)
+        _GENERATED_EPHEMERAL_SECRET = True
+    else:
+        raise SystemExit("Missing required SECRET_KEY environment variable")
+
+# Make validated values available for later configuration
+_VALIDATED_SECRET_KEY = _secret_key
+_VALIDATED_FLASK_ENV = _flask_env
+
 import cv2
 import numpy as np
 import torch
@@ -24,7 +48,7 @@ from PIL import Image
 from torchvision import transforms
 from ultralytics import YOLO
 from werkzeug.utils import secure_filename
-from dotenv import load_dotenv
+
 
 from flask import (
     Flask,
@@ -149,8 +173,18 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 app.jinja_env.auto_reload = True
 app.jinja_env.cache = {}
 
-secret_key = os.getenv("SECRET_KEY") or "dev_secret_123"
-app.secret_key = secret_key
+flask_env = _VALIDATED_FLASK_ENV
+app.secret_key = _VALIDATED_SECRET_KEY
+if _GENERATED_EPHEMERAL_SECRET:
+    logger = logging.getLogger(__name__)
+    logger.warning(
+        "No SECRET_KEY set — generated ephemeral key for development/testing only. Do NOT use in production."
+    )
+
+cookie_secure_default = flask_env not in ("development", "dev", "testing")
+app.config.setdefault("SESSION_COOKIE_SECURE", cookie_secure_default)
+app.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
+app.config.setdefault("SESSION_COOKIE_SAMESITE", os.getenv("SESSION_COOKIE_SAMESITE", "Lax"))
 
 LANG = {
     "en": {"welcome": "Welcome to Agri Vision"},

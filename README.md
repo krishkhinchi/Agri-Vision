@@ -188,6 +188,32 @@ https://www.kaggle.com/datasets/faysalmiah1721758/potato-dataset
 Download the dataset from the given URL and make sure to split the it into training data, testing data and validation data.
 ---
 
+## Environment
+The app requires a strong `SECRET_KEY` when running in production. This key signs session cookies and other secrets — keep it private.
+
+To generate a key:
+
+```
+python -c "import secrets; print(secrets.token_urlsafe(64))"
+```
+
+Create a `.env` file in the project root and add at least:
+
+```
+SECRET_KEY=your-generated-secret
+OPENWEATHER_API_KEY=your-openweather-key
+```
+
+Run the app in production mode locally:
+
+```
+export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(64))')"
+export FLASK_ENV=production
+python -m flask run --host=0.0.0.0 --port=5000
+```
+
+During development the app will create a temporary key if `SECRET_KEY` is not set — do not use that value in production.
+
 ---
 # 🤖 Model Information
 <!-- --- -->
@@ -402,10 +428,18 @@ venv\Scripts\activate
 
 ### 3️⃣ Create a `.env` File
 
-Create a `.env` file in the root directory of the project and add your secret key.
+Create a `.env` file in the project root and add a `SECRET_KEY` entry.
+
+This value is required in production—the app will not start without it. To generate a secure key locally, run:
+
+```bash
+python -c 'import secrets; print(secrets.token_urlsafe(64))'
+```
+
+Then add the generated value to `.env`:
 
 ```env
-SECRET_KEY=your_secret_key_here
+SECRET_KEY=your_generated_secret_here
 ```
 
 ### 4️⃣ Install Python Dependencies
