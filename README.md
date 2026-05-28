@@ -339,11 +339,28 @@ If you prefer to run the project natively using Python (requires Python 3.8+):
 ### 1️⃣ Clone the Repository
 
 ```bash
-git clone <repository-url>
-cd <project-folder>
+git clone https://github.com/neeru24/Agri-Vision.git
+cd Agri-Vision
 ```
 
-### 2️⃣ Create a `.env` File
+### 2️⃣ Create and Activate a Virtual Environment
+
+#### macOS/Linux
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+#### Windows
+
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+
+### 3️⃣ Create a `.env` File
 
 Create a `.env` file in the root directory of the project and add your secret key.
 
@@ -351,7 +368,7 @@ Create a `.env` file in the root directory of the project and add your secret ke
 SECRET_KEY=your_secret_key_here
 ```
 
-### 3️⃣ Install Python Dependencies
+### 4️⃣ Install Python Dependencies
 
 Install all the required Python packages using:
 
@@ -359,7 +376,7 @@ Install all the required Python packages using:
 pip install -r requirements.txt
 ```
 
-### 4️⃣ Run the Project
+### 5️⃣ Run the Project
 
 Start the application explicitly by running:
 
