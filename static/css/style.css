@@ -1147,7 +1147,7 @@ nav a[href="/model-admin"]:hover {
 
 .feature-card:hover {
     transform: translateY(-12px) scale(1.02);
-    background: linear-gradient(145deg, rgba(20, 35, 28, 0.96), rgba(10, 18, 14, 0.98));
+    background: linear-gradient(145deg, rgba(198, 235, 214, 0.96), rgba(165, 232, 199, 0.98));
     border-color: rgba(76, 255, 153, 0.35);
     box-shadow: 0 20px 45px rgba(0, 0, 0, 0.28), 0 0 25px rgba(76, 255, 153, 0.12);
     cursor: pointer;
@@ -1182,14 +1182,14 @@ nav a[href="/model-admin"]:hover {
 .feature-card h3 {
     font-size: 1.25rem;
     margin-bottom: 0.8rem;
-    color: var(--deep-forest);
+    color: #000 !important;
     transition: color 0.3s ease;
 }
 
 .feature-card:hover h3 { color: #4cff99; }
 
 .feature-card p {
-    color: var(--warm-earth);
+    color: #1b4332;
     font-size: 0.95rem;
     line-height: 1.5;
 }
@@ -2748,6 +2748,60 @@ main{
 
     .dashboard-card h3, .dashboard-card div, .dashboard-card span, .analysis-footer { color: #000000 !important; }
 
+
+    .fade-in { opacity: 1 !important; transform: none !important; color: black !important; }
+}
+.support-card:hover {
+    background: #c8f5d6 !important;
+    border: 1px solid #a7ebbc;
+    box-shadow: 0 10px 30px rgba(76, 255, 153, 0.18);
+}
+.support-card:hover h3,
+.support-card p {
+    color: #4b5563 !important;
+    opacity: 1 !important;
+    font-size: 1rem;
+    line-height: 1.7;
+}
+
+.support-card:hover h3 {
+    color: #19d55e !important;
+}
+
+[data-theme="dark"] .support-card p {
+    color: #87e8ae !important;
+}
+.support-card {
+    background: var(--card-bg) !important;
+}
+.support-card a {
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 600;
+    position: relative;
+    z-index: 10;
+    pointer-events: auto;
+    transition: 0.3s ease;
+}
+
+.support-card a:hover {
+    color: #16a353 !important;
+    text-decoration: underline;
+}
+.linkedin-link {
+    display: inline-block;
+    margin-top: 12px;
+    color: #2563eb;
+    transition: 0.3s ease;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.linkedin-link:hover {
+    color:  #86efac !important;
+    /* transform: translateX(4px); */
+    text-decoration: underline;
+}
     .fade-in {
         opacity: 1 !important;
         transform: none !important;
