@@ -2215,56 +2215,66 @@ def api_batch_upload():
         db.session.add(job)
         db.session.commit()
 
+        import base64
         images_data = []
         for file in valid_files:
             file_data = file.read()
-            images_data.append((file.filename, file_data))
+            b64_data = base64.b64encode(file_data).decode('utf-8')
+            images_data.append((file.filename, b64_data))
 
-        import cv2
-        import numpy as np
+        celery_enabled = False
+        try:
+            from celery_tasks import process_batch_job, CELERY_AVAILABLE
+            if CELERY_AVAILABLE:
+                process_batch_job.delay(job.id, images_data)
+                celery_enabled = True
+        except ImportError:
+            pass
 
-        for idx, (filename, image_data) in enumerate(images_data):
-            try:
-                file_bytes = np.frombuffer(image_data, np.uint8)
-                image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-                if image is not None:
-                    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                    results = analyze_image(image_rgb)
-
+        if not celery_enabled:
+            import cv2
+            import numpy as np
+            for idx, (filename, b64_data) in enumerate(images_data):
+                try:
+                    file_bytes = np.frombuffer(base64.b64decode(b64_data), np.uint8)
+                    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                    if image is not None:
+                        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                        results = analyze_image(image_rgb)
+                        result = AnalysisResult(
+                            batch_job_id=job.id,
+                            image_name=filename,
+                            image_index=idx,
+                            status="complete",
+                            disease_class=results.get("disease", {}).get("predicted_class"),
+                            disease_confidence=results.get("disease", {}).get("confidence"),
+                            health_score=results.get("disease", {}).get("health_score"),
+                            growth_class=results.get("growth", {}).get("main_class"),
+                            growth_confidence=results.get("growth", {}).get("confidence"),
+                            results_json=results,
+                        )
+                        db.session.add(result)
+                except Exception as e:
+                    logger.error(f"Error processing image {filename}: {e}")
                     result = AnalysisResult(
                         batch_job_id=job.id,
                         image_name=filename,
                         image_index=idx,
-                        status="complete",
-                        disease_class=results.get("disease", {}).get("predicted_class"),
-                        disease_confidence=results.get("disease", {}).get("confidence"),
-                        health_score=results.get("disease", {}).get("health_score"),
-                        growth_class=results.get("growth", {}).get("main_class"),
-                        growth_confidence=results.get("growth", {}).get("confidence"),
-                        results_json=results,
+                        status="error",
+                        error_message=str(e),
                     )
                     db.session.add(result)
-            except Exception as e:
-                logger.error(f"Error processing image {filename}: {e}")
-                result = AnalysisResult(
-                    batch_job_id=job.id,
-                    image_name=filename,
-                    image_index=idx,
-                    status="error",
-                    error_message=str(e),
-                )
-                db.session.add(result)
-
-        job.status = "completed"
-        job.completed_at = datetime.utcnow()
-        db.session.commit()
+            
+            job.status = "completed"
+            job.completed_at = datetime.utcnow()
+            db.session.commit()
 
         return jsonify(
             {
                 "status": "success",
                 "job_id": job.id,
                 "total_images": len(valid_files),
-                "celery_enabled": False,
+                "celery_enabled": celery_enabled,
                 "message": f"Batch job {job.id} started with {len(valid_files)} images",
             }
         )

@@ -47,7 +47,8 @@ if CELERY_AVAILABLE:
             )
             
             # Decode image
-            file_bytes = np.frombuffer(image_data, np.uint8)
+            import base64
+            file_bytes = np.frombuffer(base64.b64decode(image_data), np.uint8)
             image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
             if image is None:
                 raise ValueError(f"Invalid image file: {image_name}")
