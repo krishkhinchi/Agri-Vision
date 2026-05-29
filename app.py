@@ -105,6 +105,10 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
+@app.errorhandler(404)
+def not_found(e):
+    return render_template('404.html'), 404
+
 # Try dynamic package loading to prevent crash on automated CI testing rigs
 try:
     redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
