@@ -2504,50 +2504,37 @@ def api_batch_upload():
 
         celery_enabled = False
         try:
-            from celery_tasks import process_batch_job, CELERY_AVAILABLE
-            if CELERY_AVAILABLE:
-                process_batch_job.delay(job.id, images_data)
-                celery_enabled = True
-        except ImportError:
-            pass
+            from celery_tasks import process_batch_job, CELERY_AVAILABLE, MAX_BATCH_SIZE
 
-        if not celery_enabled:
-            import cv2
-            import numpy as np
-            for idx, (filename, b64_data) in enumerate(images_data):
+            if len(images_data) > int(MAX_BATCH_SIZE):
+                return (
+                    jsonify({"error": f"Batch size exceeds maximum of {MAX_BATCH_SIZE}"}),
+                    400,
+                )
+
+            if CELERY_AVAILABLE:
                 try:
-                    file_bytes = np.frombuffer(base64.b64decode(b64_data), np.uint8)
-                    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-                    if image is not None:
-                        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                        results = analyze_image(image_rgb)
-                        result = AnalysisResult(
-                            batch_job_id=job.id,
-                            image_name=filename,
-                            image_index=idx,
-                            status="complete",
-                            disease_class=results.get("disease", {}).get("predicted_class"),
-                            disease_confidence=results.get("disease", {}).get("confidence"),
-                            health_score=results.get("disease", {}).get("health_score"),
-                            growth_class=results.get("growth", {}).get("main_class"),
-                            growth_confidence=results.get("growth", {}).get("confidence"),
-                            results_json=results,
-                        )
-                        db.session.add(result)
+                    process_batch_job.delay(job.id, images_data)
+                    celery_enabled = True
                 except Exception as e:
-                    logger.error(f"Error processing image {filename}: {e}")
-                    result = AnalysisResult(
-                        batch_job_id=job.id,
-                        image_name=filename,
-                        image_index=idx,
-                        status="error",
-                        error_message=str(e),
-                    )
-                    db.session.add(result)
-            
-            job.status = "completed"
-            job.completed_at = datetime.utcnow()
-            db.session.commit()
+                    logger.exception("Failed to dispatch Celery job, falling back: %s", e)
+                    celery_enabled = False
+            else:
+                try:
+                    process_batch_job(job.id, images_data)
+                    celery_enabled = False
+                except Exception as e:
+                    logger.exception("Fallback batch processing failed to start: %s", e)
+                    return jsonify({"error": str(e)}), 500
+
+        except ImportError:
+            logger.warning("celery_tasks module not available; will attempt fallback processing")
+            try:
+                from celery_tasks import process_batch_job
+                process_batch_job(job.id, images_data)
+            except Exception:
+                logger.exception("Fallback batch processing failed to start")
+                return jsonify({"error": "Batch processing unavailable"}), 500
 
         return jsonify(
             {
