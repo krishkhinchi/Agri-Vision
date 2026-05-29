@@ -75,6 +75,7 @@ from flask_login import (
     current_user,
 )
 from jinja2 import Environment, FileSystemLoader
+from services.image_quality import safe_validate_image_quality
 
 # redis and rate limiting imports
 import redis
@@ -720,6 +721,29 @@ def read_uploaded_image(file_storage) -> Tuple[str, np.ndarray, np.ndarray]:
     if image is None:
         raise ValueError("Error reading image file")
     return safe_filename, image, cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
+def should_continue_after_quality_warning(validation: Dict[str, Any]) -> bool:
+    return (
+        request.form.get("continue_analysis") == "1"
+        or request.form.get("continue_anyway") == "1"
+        or request.args.get("continue_analysis") == "1"
+    )
+
+
+def add_quality_warning_to_results(
+    results: Dict[str, Any], validation: Dict[str, Any]
+) -> Dict[str, Any]:
+    results["image_quality"] = validation
+    quality_warnings = validation.get("warnings") or []
+    if quality_warnings:
+        existing_warnings = list(results.get("warnings", []))
+        for warning in quality_warnings:
+            message = f"Image quality warning: {warning}"
+            if message not in existing_warnings:
+                existing_warnings.append(message)
+        results["warnings"] = existing_warnings
+    return results
 
 
 GRAD_CAM_CACHE = {}
@@ -1774,8 +1798,27 @@ def analyze():
 
         try:
             safe_filename, image, image_rgb = read_uploaded_image(file)
+            image_quality, _quality_fallback = safe_validate_image_quality(image)
+            if image_quality.get("is_blocking"):
+                flash(
+                    "Image quality check failed: "
+                    + "; ".join(image_quality.get("warnings", [])),
+                    "error",
+                )
+                return render_template(
+                    "upload.html",
+                    image_quality=image_quality,
+                )
+            if image_quality.get("warnings") and not should_continue_after_quality_warning(image_quality):
+                return render_template(
+                    "upload.html",
+                    image_quality=image_quality,
+                    quality_requires_confirmation=True,
+                )
+
             compressed_rgb = resize_image(image_rgb, MAX_INFERENCE_DIMENSION)
             results = analyze_image(compressed_rgb)
+            add_quality_warning_to_results(results, image_quality)
 
             lat = request.form.get("lat", type=float)
             lon = request.form.get("lon", type=float)
@@ -1936,9 +1979,22 @@ def api_explain():
 
     try:
         _, image, image_rgb = read_uploaded_image(file)
+        image_quality, _quality_fallback = safe_validate_image_quality(image)
+        if image_quality.get("is_blocking"):
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "error": "Image quality check failed.",
+                        "image_quality": image_quality,
+                    }
+                ),
+                400,
+            )
         compressed_rgb = resize_image(image_rgb, MAX_INFERENCE_DIMENSION)
 
         results = analyze_image(compressed_rgb)
+        add_quality_warning_to_results(results, image_quality)
 
         if "error" in results:
             return jsonify({"status": "error", "error": results["error"]}), 500
@@ -1954,6 +2010,7 @@ def api_explain():
                 "image_b64": encode_image_for_display(compressed_rgb),
                 "predicted_class": disease_result.get("predicted_class", "Unknown"),
                 "confidence": disease_result.get("confidence", 0.0),
+                "image_quality": image_quality,
             }
         )
     except Exception as exc:
@@ -2312,13 +2369,27 @@ def api_analyze():
         if image is None:
             return jsonify({"error": "Invalid image file"}), 400
 
+        image_quality, _quality_fallback = safe_validate_image_quality(image)
+        if image_quality.get("is_blocking"):
+            return (
+                jsonify(
+                    {
+                        "error": "Image quality check failed.",
+                        "image_quality": image_quality,
+                    }
+                ),
+                400,
+            )
+
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         results = analyze_image(image_rgb)
+        add_quality_warning_to_results(results, image_quality)
 
         resp_data = {
             "status": "success",
             "timestamp": datetime.now().isoformat(),
             "results": results,
+            "image_quality": image_quality,
         }
         resp_json = json.dumps(resp_data)
 
@@ -2346,28 +2417,37 @@ def api_analyze_stream():
 
     def generate():
         try:
-            yield f"data: {json.dumps({'status': 'uploading', 'progress': 25})}\n\n"
+            yield f"data: {json.dumps({'status': 'uploading', 'step': 'upload_received', 'progress': 25, 'message': 'Upload received.'})}\n\n"
 
             file_bytes = np.frombuffer(file.read(), np.uint8)
             image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
             if image is None:
-                yield f"data: {json.dumps({'status': 'error', 'message': 'Invalid image file'})}\n\n"
+                yield f"data: {json.dumps({'status': 'error', 'step': 'error', 'message': 'Invalid image file'})}\n\n"
                 return
 
-            yield f"data: {json.dumps({'status': 'analyzing', 'progress': 50})}\n\n"
+            image_quality, _quality_fallback = safe_validate_image_quality(image)
+            if image_quality.get("is_blocking"):
+                yield f"data: {json.dumps({'status': 'error', 'step': 'error', 'message': 'Image quality check failed.', 'image_quality': image_quality})}\n\n"
+                return
+            if image_quality.get("warnings") and not should_continue_after_quality_warning(image_quality):
+                yield f"data: {json.dumps({'status': 'quality_warning', 'step': 'quality_warning', 'progress': 35, 'message': 'Image quality warnings found.', 'image_quality': image_quality})}\n\n"
+                return
+
+            yield f"data: {json.dumps({'status': 'analyzing', 'step': 'preprocessing', 'progress': 50, 'message': 'Validating and preparing image.'})}\n\n"
 
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             compressed_rgb = resize_image(image_rgb, MAX_INFERENCE_DIMENSION)
             results = analyze_image(compressed_rgb)
+            add_quality_warning_to_results(results, image_quality)
             if results.get("error"):
-                yield f"data: {json.dumps({'status': 'error', 'message': results['error']})}\n\n"
+                yield f"data: {json.dumps({'status': 'error', 'step': 'error', 'message': results['error']})}\n\n"
                 return
 
-            yield f"data: {json.dumps({'status': 'generating', 'progress': 75})}\n\n"
-            yield f"data: {json.dumps({'status': 'complete', 'progress': 100, 'results': results})}\n\n"
+            yield f"data: {json.dumps({'status': 'generating', 'step': 'recommendations', 'progress': 75, 'message': 'Generating recommendations.'})}\n\n"
+            yield f"data: {json.dumps({'status': 'complete', 'step': 'complete', 'progress': 100, 'message': 'Analysis complete.', 'results': results, 'data': {'results': results, 'image_quality': image_quality}})}\n\n"
         except Exception as e:
             logger.error(f"Streaming analysis error: {e}")
-            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+            yield f"data: {json.dumps({'status': 'error', 'step': 'error', 'message': str(e)})}\n\n"
 
     return Response(stream_with_context(generate()), mimetype="text/event-stream")
 

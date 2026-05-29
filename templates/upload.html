@@ -202,6 +202,26 @@
                     <input type="file" id="fileInput" name="file" accept="*/*" style="display:none;"
                         onchange="previewImage(this)" />
                 </div>
+                <input type="hidden" id="continueAnalysisInput" name="continue_analysis" value="0" />
+                <div id="qualityFeedbackPanel" class="quality-feedback-panel" style="display:none;" aria-live="polite">
+                    <div class="quality-feedback-head">
+                        <div>
+                            <span class="quality-eyebrow">Image Quality</span>
+                            <h4 id="qualityStatusText">Checking image quality...</h4>
+                        </div>
+                        <div id="qualityScoreBadge" class="quality-score-badge">--</div>
+                    </div>
+                    <div id="qualityWarningList" class="quality-warning-list"></div>
+                    <div id="qualitySuggestionList" class="quality-suggestion-list"></div>
+                    <div id="qualityActions" class="quality-actions" style="display:none;">
+                        <button type="button" class="btn btn-secondary" onclick="resetUpload()">
+                            <i class="fas fa-arrow-rotate-left"></i> Re-upload
+                        </button>
+                        <button type="button" class="btn btn-primary" onclick="continueWithCurrentImage()">
+                            <i class="fas fa-play"></i> Continue Anyway
+                        </button>
+                    </div>
+                </div>
                 <button type="submit" class="btn btn-primary btn-large action-btn">
                         <i class="fas fa-magnifying-glass"></i> Start AI Analysis
                     </button>
@@ -448,6 +468,102 @@
 
     /* MOBILE RESPONSIVE FIXES */
 
+    .quality-feedback-panel {
+        margin-top: 1rem;
+        padding: 1rem;
+        border: 1px solid var(--card-border);
+        border-radius: 12px;
+        background: var(--card-bg);
+        color: var(--text-main);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+        animation: qualitySlideIn 0.24s ease;
+    }
+
+    .quality-feedback-panel.is-good {
+        border-color: var(--success-border);
+        background: var(--success-bg);
+    }
+
+    .quality-feedback-panel.is-warning {
+        border-color: rgba(245, 158, 11, 0.45);
+        background: rgba(245, 158, 11, 0.10);
+    }
+
+    .quality-feedback-panel.is-error {
+        border-color: var(--error-border);
+        background: var(--error-bg);
+    }
+
+    .quality-feedback-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    .quality-eyebrow {
+        display: block;
+        margin-bottom: 0.2rem;
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .quality-feedback-head h4 {
+        margin: 0;
+        font-size: 1rem;
+        color: var(--text-main);
+    }
+
+    .quality-score-badge {
+        min-width: 54px;
+        padding: 0.45rem 0.7rem;
+        border-radius: 8px;
+        background: var(--deep-forest);
+        color: #fff;
+        text-align: center;
+        font-weight: 800;
+    }
+
+    .quality-warning-list,
+    .quality-suggestion-list {
+        display: grid;
+        gap: 0.45rem;
+        margin-top: 0.8rem;
+    }
+
+    .quality-warning-item,
+    .quality-suggestion-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        line-height: 1.45;
+    }
+
+    .quality-warning-item i {
+        color: #f59e0b;
+        margin-top: 0.15rem;
+    }
+
+    .quality-suggestion-item i {
+        color: var(--emerald-green);
+        margin-top: 0.15rem;
+    }
+
+    .quality-actions {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 1rem;
+    }
+
+    @keyframes qualitySlideIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
     @media (max-width: 768px) {
 
         .loading-panel {
@@ -472,6 +588,12 @@
             padding: 1rem;
         }
 
+        .quality-feedback-head,
+        .quality-actions {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
         .info-grid {
             grid-template-columns: 1fr;
             gap: 1rem;
@@ -484,6 +606,27 @@
 
         .action-btn {
             width: 100%;
+        }
+    }
+
+    /* Dark mode adjustments for quality panel */
+    @media (prefers-color-scheme: dark) {
+        .quality-feedback-panel {
+            background: rgba(20,24,28,0.6);
+            border-color: rgba(255,255,255,0.06);
+            color: #e6eef3;
+        }
+        .quality-feedback-panel.is-warning {
+            background: rgba(245, 158, 11, 0.08);
+            border-color: rgba(245, 158, 11, 0.2);
+        }
+        .quality-feedback-panel.is-error {
+            background: rgba(255, 99, 71, 0.06);
+            border-color: rgba(255, 99, 71, 0.18);
+        }
+        .quality-score-badge {
+            background: linear-gradient(135deg, #1f9d5a, #145c37);
+            color: #fff;
         }
     }
 </style>
@@ -532,6 +675,52 @@
             uploadArea.style.borderColor = 'var(--emerald-green)';
             uploadArea.style.background = 'var(--success-bg)';
         }
+    }
+
+    function renderQualityFeedback(quality, options = {}) {
+        const panel = document.getElementById('qualityFeedbackPanel');
+        const statusText = document.getElementById('qualityStatusText');
+        const scoreBadge = document.getElementById('qualityScoreBadge');
+        const warningList = document.getElementById('qualityWarningList');
+        const suggestionList = document.getElementById('qualitySuggestionList');
+        const actions = document.getElementById('qualityActions');
+
+        if (!panel || !quality) return;
+
+        const warnings = quality.warnings || [];
+        const suggestions = quality.suggestions || [];
+        const score = Number.isFinite(Number(quality.quality_score)) ? Number(quality.quality_score) : 0;
+        const status = quality.status || (warnings.length ? 'Fair' : 'Good');
+
+        panel.className = 'quality-feedback-panel';
+        if (quality.is_blocking) panel.classList.add('is-error');
+        else if (warnings.length) panel.classList.add('is-warning');
+        else panel.classList.add('is-good');
+
+        statusText.textContent = `${status} image quality`;
+        scoreBadge.textContent = `${score}/100`;
+        warningList.innerHTML = warnings.map(item => (
+            `<div class="quality-warning-item"><i class="fas fa-triangle-exclamation"></i><span>${item}</span></div>`
+        )).join('');
+        suggestionList.innerHTML = suggestions.map(item => (
+            `<div class="quality-suggestion-item"><i class="fas fa-lightbulb"></i><span>${item}</span></div>`
+        )).join('');
+        actions.style.display = options.allowContinue ? 'flex' : 'none';
+        panel.style.display = 'block';
+    }
+
+    function hideQualityFeedback() {
+        const panel = document.getElementById('qualityFeedbackPanel');
+        const continueInput = document.getElementById('continueAnalysisInput');
+        if (panel) panel.style.display = 'none';
+        if (continueInput) continueInput.value = '0';
+    }
+
+    function continueWithCurrentImage() {
+        const continueInput = document.getElementById('continueAnalysisInput');
+        const form = document.querySelector('form');
+        if (continueInput) continueInput.value = '1';
+        if (form) form.requestSubmit();
     }
 
     async function convertPdfToImage(file) {
@@ -754,75 +943,7 @@
             return;
         }
  
-        const reader  = response.body.getReader();
-        const decoder = new TextDecoder();
-        let   buffer  = '';
- 
-        while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
- 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();   // keep incomplete last line
- 
-            for (const line of lines) {
-                if (!line.startsWith('data: ')) continue;
-                let parsed;
-                try {
-                    parsed = JSON.parse(line.slice(6));
-                } catch {
-                    continue;
-                }
- 
-                const { step, progress, message, data } = parsed;
- 
-                // Update progress bar
-                progressBar.style.width = progress + '%';
-                statusMsg.textContent = message;
- 
-                if (step === 'error') {
-                    // Mark active steps as error-step
-                    steps.forEach(s => {
-                        const el = document.getElementById('step-' + s);
-                        if (el && el.classList.contains('active')) {
-                            el.className = 'stream-step error-step';
-                            el.textContent = '❌ ' + el.dataset.label;
-                        }
-                    });
-                    statusMsg.textContent = '❌ ' + message;
-                    statusMsg.style.color = '#ff6b6b';
-                    progressBar.style.background = '#ff6b6b';
-                    
-                    const previewContainer = document.getElementById('previewContainer');
-                    const preview = document.getElementById('imagePreview');
-
-                    if (previewContainer && preview && preview.src) {
-                        previewContainer.style.display = 'block';
-                        preview.style.display = 'block';
-                    }
-                    isAnalyzing = false;
-                    submitBtn.style.display = '';
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = '<i class="fas fa-magnifying-glass"></i> Try Again';
-                    return;
-                }
- 
-                // Map backend step to our frontend 4 UI steps:
-                // upload: upload_received
-                // analyze: preprocessing, growth_inference, disease_inference
-                // predict: recommendations
-                // complete: complete
-                let uiStep = '';
-                if (step === 'upload_received') {
-                    uiStep = 'upload';
-                } else if (step === 'preprocessing' || step === 'growth_inference' || step === 'disease_inference') {
-                    uiStep = 'analyze';
-                } else if (step === 'recommendations') {
-                    uiStep = 'predict';
-                } else if (step === 'complete') {
-                    uiStep = 'complete';
-                }
+        // (removed stray reader block)
 
         isAnalyzing = true;
         submitBtn.disabled = true;
@@ -889,6 +1010,21 @@
                     // Update progress bar
                     progressBar.style.width = progress + '%';
                     statusMsg.textContent = message;
+
+                    // Handle server-sent quality warnings: show the inline quality panel
+                    if (step === 'quality_warning' || parsed.status === 'quality_warning') {
+                        const iq = parsed.image_quality || (parsed.data && parsed.data.image_quality);
+                        renderQualityFeedback(iq, { allowContinue: true });
+                        // Stop the streaming UI and allow the user to continue or re-upload
+                        isAnalyzing = false;
+                        submitBtn.style.display = '';
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="fas fa-magnifying-glass"></i> Start AI Analysis';
+                        // Ensure preview remains visible
+                        const previewContainer = document.getElementById('previewContainer');
+                        if (previewContainer) previewContainer.style.display = 'block';
+                        return;
+                    }
 
                     if (step === 'error') {
                         // Mark active steps as error-step
