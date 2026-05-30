@@ -591,6 +591,10 @@ src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit
         {% endwith %}
 
         <section class="hero">
+            <!-- Decorative Ambient Particles (canvas). aria-hidden to protect accessibility -->
+            <div id="ambient-particles-root" class="ambient-particles-root" aria-hidden="true" data-particles="on">
+                <canvas id="ambient-particles-canvas" class="ambient-particles-canvas" aria-hidden="true"></canvas>
+            </div>
             <!-- Ambient Background Layers -->
             <div class="hero-bg-blobs">
                 <div class="blob blob-1"></div>
@@ -599,7 +603,7 @@ src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit
             </div>
             <div class="hero-grid-overlay"></div>
 
-            <div class="hero-container">
+            <div class="hero-container" style="z-index: 3; position: relative;">
                 <div class="hero-content">
                     <div class="hero-badge-wrapper">
                         <span class="hero-badge" data-i18n="hero_badge">
@@ -844,6 +848,7 @@ src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit
     <script>
         document.getElementById("year").textContent = new Date().getFullYear();
     </script>
+    <script defer src="{{ url_for('static', filename='js/ambient-particles.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
 
