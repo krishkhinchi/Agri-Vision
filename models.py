@@ -98,6 +98,12 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime, nullable=True)
     is_active = db.Column(db.Boolean, default=True)
+    failed_login_attempts = db.Column(db.Integer, default=0, nullable=False)
+    last_failed_login_at = db.Column(db.DateTime, nullable=True)
+    account_locked_until = db.Column(db.DateTime, nullable=True, index=True)
+    last_successful_login_at = db.Column(db.DateTime, nullable=True)
+    last_failed_ip = db.Column(db.String(64), nullable=True)
+    last_successful_ip = db.Column(db.String(64), nullable=True)
 
     # OAuth fields (populated when user signs in via Google)
     oauth_provider = db.Column(db.String(32), nullable=True)   # e.g. "google"
@@ -107,6 +113,9 @@ class User(UserMixin, db.Model):
     # Relationships
     analyses = db.relationship(
         "AnalysisHistory", backref="user", lazy=True, cascade="all, delete-orphan"
+    )
+    user_roles = db.relationship(
+        "UserRole", backref="user", lazy="dynamic", cascade="all, delete-orphan"
     )
 
     def set_password(self, password):
@@ -158,6 +167,12 @@ class User(UserMixin, db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "last_login": self.last_login.isoformat() if self.last_login else None,
             "is_active": self.is_active,
+            "failed_login_attempts": self.failed_login_attempts,
+            "account_locked_until": (
+                self.account_locked_until.isoformat()
+                if self.account_locked_until
+                else None
+            ),
         }
 
 

@@ -204,6 +204,15 @@ SECRET_KEY=your-generated-secret
 OPENWEATHER_API_KEY=your-openweather-key
 ```
 
+Optional account lockout settings:
+
+```env
+ACCOUNT_LOCKOUT_ENABLED=true
+MAX_FAILED_LOGIN_ATTEMPTS=5
+LOCKOUT_DURATION_MINUTES=15
+ENABLE_SECURITY_AUDIT=true
+```
+
 Run the app in production mode locally:
 
 ```
@@ -526,6 +535,15 @@ Then add the generated value to `.env`:
 
 ```env
 SECRET_KEY=your_generated_secret_here
+```
+
+Optional account lockout settings:
+
+```env
+ACCOUNT_LOCKOUT_ENABLED=true
+MAX_FAILED_LOGIN_ATTEMPTS=5
+LOCKOUT_DURATION_MINUTES=15
+ENABLE_SECURITY_AUDIT=true
 ```
 
 ### 4️⃣ Install Python Dependencies

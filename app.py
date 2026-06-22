@@ -11,14 +11,23 @@ import os
 import random
 import math
 import re
+import functools
 import threading
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 from werkzeug.utils import secure_filename
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_talisman import Talisman
 from io import BytesIO
 from services.weather_service import get_weather
+from services.model_cache import (
+    init_cache_backend,
+    get_cached_prediction,
+    cache_prediction,
+    cache_stats as inference_cache_stats,
+)
+from sqlalchemy import inspect, text
 
 import redis
 import base64
@@ -48,14 +57,24 @@ import json
 from jinja2 import Environment, FileSystemLoader
 from model_registry import registry
 from services.weather_service import generate_weather_recommendations
+from services.yield_history_service import build_yield_history_report
 from services.yield_service import estimate_yield
+from services.auth_security_service import (
+    AccountLockoutService,
+    get_client_ip,
+    get_user_agent,
+)
 from security_utils import (
     UploadValidationError,
     cleanup_temp_upload,
     resolve_secret_key,
     save_temp_upload,
     validate_image_upload,
+    is_production_env,
 )
+from auth.authorization import require_role, require_any_role, require_permission
+from models import Role, Permission, RolePermission, UserRole
+
 
 load_dotenv()
 
@@ -74,6 +93,15 @@ redis_port = int(os.getenv("REDIS_PORT", "6379"))
 redis_db = int(os.getenv("REDIS_DB", "0"))
 limiter_storage_uri = "memory://"
 
+# Model warm-up configuration
+MODEL_LOAD_TIMEOUT: int = int(os.getenv("MODEL_LOAD_TIMEOUT", "60"))  # seconds
+
+# Async model warm-up state — set by background thread, read by /health
+_model_load_event: threading.Event = threading.Event()
+_model_load_status: dict = {"status": "loading", "error": None}
+
+is_prod = is_production_env(os.environ)
+
 try:
     redis_client = redis.Redis(
         host=redis_host,
@@ -85,9 +113,15 @@ try:
     redis_client.ping()
     limiter_storage_uri = f"redis://{redis_host}:{redis_port}/{redis_db}"
     logger.info("redis connected for caching and rate limiting")
+    # Wire Redis into the inference result cache backend
+    init_cache_backend(redis_client)
 except (redis.exceptions.ConnectionError, ModuleNotFoundError) as err:
-    logger.warning(f"caching layer bypass active: {err}")
     redis_client = None
+    init_cache_backend(None)  # fall back to in-memory inference cache
+    if is_prod:
+        logger.warning(f"limiter falling back to memory storage in production! Redis is required for rate limit consistency across workers. Error: {err}")
+    else:
+        logger.warning(f"caching layer bypass active: {err}")
 
 limiter = Limiter(
     get_remote_address,
@@ -97,6 +131,55 @@ limiter = Limiter(
 )
 from models import db
 db.init_app(app)
+
+
+_account_lockout_schema_checked = False
+
+
+def ensure_account_lockout_schema() -> None:
+    """Backfill account lockout columns for existing create_all-managed DBs."""
+    inspector = inspect(db.engine)
+    if "users" not in inspector.get_table_names():
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns("users")}
+    dialect = db.engine.dialect.name
+    datetime_type = "TIMESTAMP" if dialect == "postgresql" else "DATETIME"
+    columns = {
+        "failed_login_attempts": "INTEGER NOT NULL DEFAULT 0",
+        "last_failed_login_at": datetime_type,
+        "account_locked_until": datetime_type,
+        "last_successful_login_at": datetime_type,
+        "last_failed_ip": "VARCHAR(64)",
+        "last_successful_ip": "VARCHAR(64)",
+    }
+
+    changed = False
+    with db.engine.begin() as connection:
+        for column_name, ddl_type in columns.items():
+            if column_name not in existing_columns:
+                connection.execute(text(f"ALTER TABLE users ADD COLUMN {column_name} {ddl_type}"))
+                changed = True
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_users_account_locked_until "
+                "ON users (account_locked_until)"
+            )
+        )
+    if changed:
+        logger.info("Account lockout schema columns added to users table")
+
+
+@app.before_request
+def _ensure_account_lockout_schema_once() -> None:
+    global _account_lockout_schema_checked
+    if _account_lockout_schema_checked or app.config.get("TESTING"):
+        return
+    try:
+        ensure_account_lockout_schema()
+        _account_lockout_schema_checked = True
+    except Exception as exc:
+        logger.warning("Account lockout schema check skipped: %s", exc)
 
 # --- Login Manager Configuration ---
 login_manager = LoginManager()
@@ -161,6 +244,44 @@ app.request_class = CustomRequest
 swagger = Swagger(app)
 CORS(app)
 
+csp = {
+    'default-src': ["'self'"],
+    'script-src': [
+        "'self'",
+        'cdnjs.cloudflare.com',
+        'unpkg.com',
+        'cdn.jsdelivr.net',
+        "'unsafe-inline'",
+        "'unsafe-eval'"
+    ],
+    'style-src': [
+        "'self'",
+        "'unsafe-inline'",
+        'cdnjs.cloudflare.com',
+        'unpkg.com'
+    ],
+    'img-src': [
+        "'self'",
+        'data:',
+        'images.unsplash.com',
+        'developers.google.com',
+        'unpkg.com',
+        '*.openstreetmap.org'
+    ],
+    'frame-src': [
+        "'self'",
+        'https://www.youtube.com',
+        'https://youtube.com'
+    ],
+    'font-src': [
+        "'self'",
+        'cdnjs.cloudflare.com'
+    ],
+    'connect-src': ["'self'"]
+}
+Talisman(app, content_security_policy=csp, force_https=False)
+
+
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 app.jinja_env.auto_reload = True
@@ -176,7 +297,7 @@ app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 app.config["MAX_FORM_MEMORY_SIZE"] = 25 * 1024 * 1024
 app.config.setdefault("UPLOAD_MAX_BYTES", app.config["MAX_CONTENT_LENGTH"])
 app.config.setdefault("UPLOAD_RATE_LIMIT", "10 per minute")
-app.config.setdefault("API_UPLOAD_RATE_LIMIT", "20 per minute")
+app.config.setdefault("API_UPLOAD_RATE_LIMIT", "10 per minute")
 app.config.setdefault("UPLOAD_TMP_DIR", os.path.join(app.instance_path, "uploads"))
 os.makedirs(app.config["UPLOAD_TMP_DIR"], exist_ok=True)
 
@@ -311,7 +432,8 @@ class ModelManager:
                             RESNET_MODEL_PATH,
                             map_location=torch.device("cpu"),
                         )
-                    except TypeError:
+                    except (RuntimeError, Exception) as exc:
+                        logger.debug(f"ResNet50 with weights_only=True failed, retrying with weights_only=False: {exc}")
                         self.resnet_model = torch.load(
                             RESNET_MODEL_PATH,
                             map_location=torch.device("cpu"),
@@ -320,9 +442,13 @@ class ModelManager:
                     self.resnet_model.eval()
                     self.errors["resnet"] = None
                     logger.info("ResNet50 model loaded successfully")
+                except (FileNotFoundError, RuntimeError, TypeError) as exc:
+                    self.errors["resnet"] = str(exc)
+                    logger.error(f"ResNet50 model failed to load from {RESNET_MODEL_PATH}: {exc}")
+                    self.resnet_model = None
                 except Exception as exc:
                     self.errors["resnet"] = str(exc)
-                    logger.warning(f"ResNet50 model not found or failed to load: {exc}")
+                    logger.exception(f"Unexpected error loading ResNet50 model: {exc}")
                     self.resnet_model = None
 
             if self.yolo_model is None:
@@ -360,7 +486,9 @@ yolo_model = None
 grad_cam_instance = None
 
 
+@functools.lru_cache(maxsize=1)
 def load_models():
+    """Delegate to ModelManager singleton for thread-safe model loading."""
     global resnet_model, yolo_model
     if resnet_model is None:
         try:
@@ -385,8 +513,41 @@ def load_models():
             yolo_model = None
     return resnet_model, yolo_model
 
+
 def ensure_models_loaded() -> None:
     load_models()
+
+
+def _background_model_warmup() -> None:
+    """
+    Load both models in a daemon thread so the Flask app can accept requests
+    immediately.  Sets _model_load_event once complete (success or failure).
+    Logs CRITICAL if loading exceeds MODEL_LOAD_TIMEOUT seconds.
+    """
+    import time
+    global _model_load_status
+    start = time.monotonic()
+    try:
+        logger.info("[warm-up] Starting async model loading (timeout=%ds)...", MODEL_LOAD_TIMEOUT)
+        model_manager.load_models()  # thread-safe double-checked locking inside
+        elapsed = time.monotonic() - start
+        if elapsed > MODEL_LOAD_TIMEOUT:
+            msg = (
+                f"[warm-up] Models loaded but exceeded timeout threshold "
+                f"({elapsed:.1f}s > {MODEL_LOAD_TIMEOUT}s). "
+                "Consider increasing MODEL_LOAD_TIMEOUT or using a GPU."
+            )
+            logger.critical(msg)
+            _model_load_status = {"status": "timeout", "error": msg}
+        else:
+            logger.info("[warm-up] Models ready in %.2fs.", elapsed)
+            _model_load_status = {"status": "ready", "error": None}
+    except Exception as exc:  # pragma: no cover
+        logger.critical("[warm-up] Model loading FAILED: %s", exc, exc_info=True)
+        _model_load_status = {"status": "error", "error": str(exc)}
+    finally:
+        _model_load_event.set()  # unblock /health waiters regardless of outcome
+
 
 
 # -------------------------------------------------------------------
@@ -524,14 +685,28 @@ class GradCAM:
 # -------------------------------------------------------------------
 # INFERENCE PIPELINE
 # -------------------------------------------------------------------
-def preprocess_image_for_resnet(image: np.ndarray, target_size: Tuple[int, int] = (224, 224)) -> torch.Tensor:
-    transform = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.Resize(target_size),
-        transforms.ToTensor(),
-    ])
-    tensor = transform(image).unsqueeze(0)
-    return tensor
+
+# Define ONCE at module level — built once, reused every request.
+# Includes ImageNet normalization required by ResNet50 for correct inference.
+RESNET_TRANSFORM = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
+    ),
+])
+
+
+def preprocess_image_for_resnet(image: np.ndarray) -> torch.Tensor:
+    """Preprocess an RGB numpy image for ResNet50 inference.
+
+    Uses the module-level RESNET_TRANSFORM pipeline which includes
+    ImageNet normalization (mean=[0.485, 0.456, 0.406],
+    std=[0.229, 0.224, 0.225]).
+    """
+    return RESNET_TRANSFORM(image).unsqueeze(0)
 
 
 def infer_disease(image):
@@ -767,7 +942,14 @@ def read_validated_upload_image(file_storage) -> Tuple[str, np.ndarray, np.ndarr
     try:
         img = Image.open(BytesIO(file_bytes))
         img.verify()
-    except Exception:
+    except (IOError, OSError, ValueError) as e:
+        logger.warning(f"Image validation failed during PIL verify: {e}")
+        raise UploadValidationError(
+            "Unable to process this image. It may be corrupt or in an unsupported format.",
+            status_code=400,
+        )
+    except Exception as e:
+        logger.exception(f"Unexpected error during image verification: {e}")
         raise UploadValidationError(
             "Unable to process this image. It may be corrupt or in an unsupported format.",
             status_code=400,
@@ -827,12 +1009,28 @@ def generate_gradcam_explanation(
     return grad_cam_image_b64, heatmap_only_b64
 
 
-def analyze_image(image: np.ndarray,*,weather:Optional[dict]=None,field_acres: float=1.0) -> Dict[str, Any]:
+def analyze_image(image: np.ndarray, image_bytes: Optional[bytes] = None, *, weather: Optional[dict] = None, field_acres: float = 1.0) -> Dict[str, Any]:
     import time
     start_time = time.time()
-    field_acres=normalize_field_acres(field_acres)
-    
-    
+    field_acres = normalize_field_acres(field_acres)
+
+    # --- Inference result cache check (skip blobs; they come from GradCAM cache) ---
+    if image_bytes is not None:
+        cached = get_cached_prediction(image_bytes)
+        if cached is not None:
+            logger.info("[cache] Inference result cache HIT — skipping ML inference")
+            # Re-attach heatmaps from in-process GradCAM cache if available
+            image_hash = hashlib.sha256(image_bytes).hexdigest()
+            gradcam_hit = get_cached_grad_cam(image_hash)
+            if gradcam_hit:
+                cached["grad_cam_image_b64"] = gradcam_hit[0]
+                cached["heatmap_only_b64"] = gradcam_hit[1]
+                if "disease" in cached:
+                    cached["disease"]["heatmap_b64"] = gradcam_hit[0]
+                    cached["disease"]["heatmap_only_b64"] = gradcam_hit[1]
+            cached.setdefault("_cache_hit", True)
+            return cached
+
     resnet_model, yolo_model = model_manager.load_models()
     try:
         try:
@@ -946,6 +1144,14 @@ def analyze_image(image: np.ndarray,*,weather:Optional[dict]=None,field_acres: f
                 "Disease analysis is still provided, but comparison may be less reliable without a confirmed cotton crop detection.",
                 "Grad-CAM explainability may also be affected if the primary crop is not detected.",
             ]
+
+        # --- Store result in inference cache (blobs stripped inside cache_prediction) ---
+        if image_bytes is not None:
+            try:
+                cache_prediction(image_bytes, result)
+                logger.info("[cache] Inference result cached for future requests")
+            except Exception as cache_exc:
+                logger.warning("[cache] Failed to cache inference result: %s", cache_exc)
 
         return result
     except Exception as exc:
@@ -1085,6 +1291,27 @@ def is_pytest_mode() -> bool:
     return "PYTEST_CURRENT_TEST" in os.environ
 
 
+@app.route("/health")
+def health_check():
+    """
+    Readiness endpoint.
+
+    Returns HTTP 503 with {"status": "loading"} while models are being warmed up
+    in the background thread, and HTTP 200 with {"status": "ready"} once they are
+    available.  Kubernetes / Docker HEALTHCHECK probes should wait for 200.
+    """
+    ready = _model_load_event.is_set()
+    status = _model_load_status.get("status", "loading")
+    payload = {
+        "status": status if ready else "loading",
+        "models": model_manager.diagnostics() if ready else {},
+        "cache": inference_cache_stats(),
+    }
+    if not ready or status not in ("ready", "timeout"):
+        return jsonify(payload), 503
+    return jsonify(payload), 200
+
+
 @app.route("/")
 def index():
     lang = request.args.get("lang", "en")
@@ -1120,10 +1347,8 @@ def stories():
 
 @app.route("/model-admin")
 @login_required
+@require_any_role(['researcher', 'admin'])
 def admin_dashboard():
-    if not current_user.is_researcher():
-        flash('Access denied. Researchers and Admins only.', 'danger')
-        return redirect(url_for('index'))
     return render_template("admin.html")
 
 
@@ -1760,18 +1985,8 @@ def compare():
 
 @app.route("/health")
 def health():
-    ensure_models_loaded()
-    diagnostics = model_manager.diagnostics()
-    model_loaded = diagnostics["resnet"]["loaded"] and diagnostics["yolo"]["loaded"]
-    status_code = 200 if model_loaded else 503
-    return jsonify({
-        "status": "healthy" if model_loaded else "degraded",
-        "mode": "ready" if model_loaded else "degraded",
-        "timestamp": datetime.now().isoformat(),
-        "model_loaded": model_loaded,
-        "models": diagnostics,
-        "service": "Agri-Vision Cotton Analysis API",
-    }), status_code
+    """Alias kept for backwards compatibility — delegates to health_check."""
+    return health_check()
 
 
 @app.route("/analyze", methods=["GET", "POST"])
@@ -1789,6 +2004,9 @@ def analyze():
 
             file = request.files["file"]
             safe_filename, image, image_rgb, temp_path = read_validated_upload_image(file)
+            # Read raw bytes for cache keying (file already consumed; re-read from temp)
+            file.seek(0)
+            _raw_image_bytes = file.read() or None
             compressed_rgb = resize_image(image_rgb, MAX_INFERENCE_DIMENSION)
 
             lat = request.form.get("lat", type=float)
@@ -1798,7 +2016,7 @@ def analyze():
 
             weather=resolve_weather_for_analysis(lat=lat,lon=lon,city=city)
 
-            results = analyze_image(compressed_rgb,weather=weather,field_acres=field_acres)
+            results = analyze_image(compressed_rgb, image_bytes=_raw_image_bytes, weather=weather, field_acres=field_acres)
 
             if results.get("error"):
                 raise ValueError(results["error"])
@@ -1873,9 +2091,11 @@ def api_explain():
     try:
         _, image, image_rgb = read_uploaded_image(file)
         compressed_rgb = resize_image(image_rgb, MAX_INFERENCE_DIMENSION)
+        file.seek(0)
+        _raw_image_bytes = file.read() or None
         
         # We just need to call analyze_image to generate the Grad-CAM and get results
-        results = analyze_image(compressed_rgb)
+        results = analyze_image(compressed_rgb, image_bytes=_raw_image_bytes)
         
         if "error" in results:
             return jsonify({"status": "error", "error": results["error"]}), 500
@@ -2115,14 +2335,21 @@ def demo():
         
         # Convert from BGR to RGB
         synthetic_rgb = cv2.cvtColor(synthetic_bgr, cv2.COLOR_BGR2RGB)
-        
+
+        # Write synthetic image as a demo file for target explainability to locate
+        os.makedirs("static/uploads", exist_ok=True)
+        cv2.imwrite(os.path.join("static", "uploads", "demo_cotton.jpg"), synthetic_bgr)
+
         # Generate mock heatmap
+        from services.gradcam import generate_pure_heatmap, apply_heatmap_on_image
         mock_heatmap = generate_mock_heatmap(synthetic_rgb)
+        pure_heatmap_rgb = generate_pure_heatmap(synthetic_rgb, mock_heatmap)
         mock_overlay = apply_heatmap_on_image(synthetic_rgb, mock_heatmap)
         
         # Base64 encode both original synthetic image and XAI overlay
         image_b64 = encode_image_for_display(synthetic_rgb)
         grad_cam_image_b64 = encode_image_for_display(mock_overlay)
+        heatmap_only_b64 = encode_image_for_display(pure_heatmap_rgb)
         
         # Set top-level and nested properties for robustness
         demo_disease["heatmap_b64"] = grad_cam_image_b64
@@ -2139,27 +2366,45 @@ def demo():
         
         # Generate farmer insights
         insights = generate_farmer_insights(demo_disease, demo_growth)
+
+        from services.recommendation_engine import get_recommendations
+        demo_treatment_recs = get_recommendations(
+            crop_type="cotton",
+            disease_name=demo_disease.get("predicted_class", "Healthy"),
+            confidence=demo_disease.get("confidence"),
+        )
     
         example_json = {
             "disease": demo_disease,
             "growth": demo_growth,
             "recommendations": generate_recommendations(demo_disease, demo_growth),
             "grad_cam_image_b64": grad_cam_image_b64,
+            "heatmap_only_b64": heatmap_only_b64,
+            "heatmap_image_path": None,
+            "heatmap_only_path": None,
             "disease_severity": severity,
             "yield_estimate": yield_est,
             "advanced_recommendations": adv_recs,
-            "farmer_insights": insights
+            "farmer_insights": insights,
+            "treatment_recommendations": demo_treatment_recs
         }
         return render_template(
             "results.html",
             results=example_json,
             filename="demo_cotton.jpg",
+            unique_filename="demo_cotton.jpg",
             image_b64=image_b64,
             img_shape={"width": 512, "height": 384},
             raw_json=json.dumps(example_json, indent=2),
             timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             grad_cam_image_b64=grad_cam_image_b64,
-            yield_estimate=yield_est
+            heatmap_only_b64=heatmap_only_b64,
+            heatmap_image_path=None,
+            heatmap_only_path=None,
+            yield_estimate=yield_est,
+            disease_info=disease_info_map.get("Healthy", {}),
+            treatment_recommendations=demo_treatment_recs,
+            weather=None,
         )
     except Exception as e:
         logger.error(f"Demo route failed: {e}")
@@ -2258,8 +2503,21 @@ def api_weather():
     return jsonify({"status": "success", "weather": weather})
 
 
+@app.route("/api/yield/history")
+def api_yield_history():
+    """Return historical crop yield trend analytics."""
+    return jsonify(
+        build_yield_history_report(
+            crop=request.args.get("crop", "cotton"),
+            region=request.args.get("region"),
+        )
+    )
+
+
 @app.route("/api/analyze", methods=["POST"])
-@limiter.limit(lambda: app.config.get("API_UPLOAD_RATE_LIMIT", "20 per minute"))
+@app.route("/api/predict", methods=["POST"])
+@app.route("/predict", methods=["POST"])
+@limiter.limit(lambda: app.config.get("API_UPLOAD_RATE_LIMIT", "10 per minute"))
 def api_analyze():
     temp_path = None
     try:
@@ -2270,6 +2528,9 @@ def api_analyze():
 
         file = request.files["file"]
         _safe_filename, image, image_rgb, temp_path = read_validated_upload_image(file)
+        # Preserve raw bytes for cache keying before temp file cleanup
+        file.seek(0)
+        _raw_image_bytes = file.read() or None
         field_acres,field_acres_error=parse_api_field_acres(request.form.get("field_acres"))
         if field_acres_error:
             return jsonify({"error":field_acres_error}),400
@@ -2279,7 +2540,7 @@ def api_analyze():
         city=request.form.get("city",type=str)
         weather=resolve_weather_for_analysis(lat=lat,lon=lon,city=city)
         compressed_rgb = resize_image(image_rgb, MAX_INFERENCE_DIMENSION)
-        results = analyze_image(compressed_rgb, weather=weather, field_acres=field_acres)
+        results = analyze_image(compressed_rgb, image_bytes=_raw_image_bytes, weather=weather, field_acres=field_acres)
         return jsonify({
             "status": "success",
             "timestamp": datetime.now().isoformat(),
@@ -2325,7 +2586,7 @@ def api_analyze_stream():
             yield f"data: {json.dumps({'step': 'preprocessing', 'progress': 50, 'message': 'Analyzing crop health...'})}\n\n"
 
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            results = analyze_image(image_rgb)
+            results = analyze_image(image_rgb, image_bytes=image_bytes)
 
             yield f"data: {json.dumps({'step': 'recommendations', 'progress': 75, 'message': 'Generating prediction...'})}\n\n"
 
@@ -2348,6 +2609,7 @@ def api_analyze_stream():
 # --- Batch Processing Endpoints ---
 
 @app.route("/api/batch_upload", methods=["POST"])
+@limiter.limit("3 per minute")
 def api_batch_upload():
     """Upload multiple images for batch analysis"""
     try:
@@ -2736,31 +2998,63 @@ def batch_results_page(job_id):
 # --- Authentication Routes ---
 
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit("5 per minute")
 def login():
     """Login page"""
     if current_user.is_authenticated:
         return redirect(url_for('index'))
     
     if request.method == 'POST':
-        email = request.form.get('email')
-        password = request.form.get('password')
+        email = (request.form.get('email') or '').strip().lower()
+        password = request.form.get('password') or ''
         remember = request.form.get('remember')
+        ip_address = get_client_ip()
+        user_agent = get_user_agent()
+        lockout_service = AccountLockoutService()
         
         from models import User
         user = User.query.filter_by(email=email).first()
+
+        if user:
+            lockout_state = lockout_service.check_lockout(user)
+            if lockout_state.unlocked_expired_lock:
+                lockout_service.record_unlock(
+                    user,
+                    ip=ip_address,
+                    user_agent=user_agent,
+                )
+                db.session.commit()
+            if lockout_state.locked:
+                flash('Account temporarily locked. Please try again later.', 'danger')
+                return render_template(
+                    'login.html',
+                    google_oauth_enabled=GOOGLE_OAUTH_ENABLED,
+                ), 423
         
         if user and user.check_password(password):
             if not user.is_active:
                 flash('Your account has been deactivated. Please contact support.', 'danger')
-                return render_template('login.html')
+                return render_template('login.html', google_oauth_enabled=GOOGLE_OAUTH_ENABLED)
             
             login_user(user, remember=remember)
-            user.last_login = datetime.utcnow()
+            lockout_service.record_successful_login(
+                user,
+                ip=ip_address,
+                user_agent=user_agent,
+            )
+            user.last_login = user.last_successful_login_at
             db.session.commit()
             
             next_page = request.args.get('next')
             return redirect(next_page) if next_page else redirect(url_for('index'))
         else:
+            if user:
+                lockout_service.record_failed_login(
+                    user,
+                    ip=ip_address,
+                    user_agent=user_agent,
+                )
+                db.session.commit()
             flash('Invalid email or password', 'danger')
     
     return render_template('login.html', google_oauth_enabled=GOOGLE_OAUTH_ENABLED)
@@ -3596,6 +3890,7 @@ if __name__ == '__main__':
     # Initialize database tables
     with app.app_context():
         db.create_all()
+        ensure_account_lockout_schema()
         logger.info("Database tables created")
 
         # Seed enterprise RBAC (idempotent)
@@ -3607,8 +3902,19 @@ if __name__ == '__main__':
         except Exception as exc:
             logger.warning(f"RBAC seed skipped/failed: {exc}")
 
-
-    ensure_models_loaded()
+    # --- Async model warm-up: start background thread so Flask is immediately responsive ---
+    warmup_thread = threading.Thread(
+        target=_background_model_warmup,
+        name="model-warmup",
+        daemon=True,
+    )
+    warmup_thread.start()
+    logger.info(
+        "[warm-up] Model loading started in background thread '%s'. "
+        "Server will accept requests immediately. "
+        "Poll GET /health for readiness.",
+        warmup_thread.name,
+    )
     
     # Register models in the registry
     try:
@@ -3634,3 +3940,35 @@ if __name__ == '__main__':
     
     is_debug = os.getenv("FLASK_DEBUG", "False").lower() in ("true", "1", "t")
     app.run(debug=is_debug, host="0.0.0.0", port=5000)
+
+# --- RBAC Management APIs ---
+
+@app.route('/api/admin/roles', methods=['GET', 'POST'])
+@login_required
+@require_role('admin')
+def api_admin_roles():
+    from auth.audit_log import log_audit_event
+    if request.method == 'POST':
+        data = request.get_json()
+        role = Role(name=data['name'], slug=data['slug'], description=data.get('description'))
+        db.session.add(role)
+        db.session.commit()
+        log_audit_event("ROLE_CREATED", f"Role {role.slug} created", user_id=current_user.id)
+        return jsonify({"status": "success", "id": role.id})
+    roles = Role.query.filter_by(deleted_at=None).all()
+    return jsonify([{"id": r.id, "name": r.name, "slug": r.slug} for r in roles])
+
+@app.route('/api/admin/permissions', methods=['GET', 'POST'])
+@login_required
+@require_role('admin')
+def api_admin_permissions():
+    from auth.audit_log import log_audit_event
+    if request.method == 'POST':
+        data = request.get_json()
+        perm = Permission(name=data['name'], slug=data['slug'])
+        db.session.add(perm)
+        db.session.commit()
+        log_audit_event("PERMISSION_CREATED", f"Permission {perm.slug} created", user_id=current_user.id)
+        return jsonify({"status": "success", "id": perm.id})
+    perms = Permission.query.all()
+    return jsonify([{"id": p.id, "name": p.name, "slug": p.slug} for p in perms])

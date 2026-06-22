@@ -9,9 +9,10 @@ import unicodedata
 from typing import Mapping, Tuple
 
 try:
-    import magic
+    import magic  # type: ignore
 except ImportError:  # pragma: no cover - handled by UploadValidationError
     magic = None
+
 
 
 class UploadValidationError(ValueError):
@@ -30,9 +31,20 @@ def is_production_env(env: Mapping[str, str]) -> bool:
 def resolve_secret_key(env: Mapping[str, str]) -> str:
     """Resolve SECRET_KEY and fail fast when missing in production."""
     secret_key = env.get("SECRET_KEY")
-    if not secret_key and is_production_env(env):
-        raise RuntimeError("SECRET_KEY must be configured in production.")
-    return secret_key or "dev_secret_123"
+
+    # Tests expect SystemExit on import-time for production.
+    # This function raises RuntimeError; app.py catches it and aborts via SystemExit.
+    if secret_key is None or secret_key == "":
+        if is_production_env(env):
+            # app.py converts this RuntimeError to SystemExit.
+            raise RuntimeError("SECRET_KEY must be configured in production.")
+
+        # In non-production, provide a deterministic dev key.
+        return "dev_secret_123"
+
+
+    return secret_key
+
 
 
 def sanitize_filename(filename: str, max_length: int = 120) -> str:
@@ -66,10 +78,30 @@ def _read_stream_limited(stream, max_bytes: int, chunk_size: int = 1024 * 1024) 
 
 
 def detect_mime_type(sample: bytes) -> str:
-    """Detect the MIME type using file signatures (magic bytes)."""
-    if magic is None:
-        raise UploadValidationError("python-magic is required for content validation.", status_code=500)
-    return magic.from_buffer(sample, mime=True)
+    """Detect MIME type.
+
+    In this repo we support two validation backends:
+      1) python-magic (if installed) for detailed detection
+      2) file-signature fallback for CI/dev environments without python-magic
+    """
+    if magic is not None:
+        return magic.from_buffer(sample, mime=True)
+
+    # Fallback: use lightweight signature-based validation from services/file_validator.py
+    try:
+        from services.file_validator import detect_image_type
+
+        detected = detect_image_type(sample)
+        if detected is None:
+            raise UploadValidationError("Invalid image content.", status_code=400)
+        _fmt, mime = detected
+        return mime
+
+    except Exception as exc:
+        # If fallback import/detection fails, fail safe with the original 500 message.
+        raise UploadValidationError("python-magic is required for content validation.", status_code=500) from exc
+
+
 
 
 def validate_image_upload(
@@ -102,11 +134,30 @@ def validate_image_upload(
     except Exception:
         pass
 
-    mime_type = detect_mime_type(file_bytes[:2048])
-    if mime_type not in allowed_mime_types:
-        raise UploadValidationError("Invalid image content.", status_code=400)
+    # Prefer signature-based validation from services/file_validator when available.
+    try:
+        from services.file_validator import validate_upload as validate_upload_magicbytes
 
-    return sanitized_name, file_bytes, mime_type
+        claimed_mime = getattr(file_storage, "content_type", "") or ""
+        ok, reason = validate_upload_magicbytes(
+            file_bytes=file_bytes,
+            claimed_mime=claimed_mime,
+        )
+        if not ok:
+            raise UploadValidationError(f"Invalid image content: {reason}", status_code=400)
+        detected = detect_mime_type(file_bytes[:2048])
+        if detected not in allowed_mime_types:
+            raise UploadValidationError("Invalid image content.", status_code=400)
+        return sanitized_name, file_bytes, detected
+    except UploadValidationError:
+        raise
+    except Exception:
+        # Fallback to detect_mime_type only.
+        mime_type = detect_mime_type(file_bytes[:2048])
+        if mime_type not in allowed_mime_types:
+            raise UploadValidationError("Invalid image content.", status_code=400)
+        return sanitized_name, file_bytes, mime_type
+
 
 
 def save_temp_upload(file_bytes: bytes, upload_dir: str, filename: str) -> str:

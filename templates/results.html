@@ -21,39 +21,190 @@
         </p>
       </div>
 
-      <section aria-label="Growth Stage Detection" class="result-card" role="region" aria-live="polite">
-        <h2 class="results-section-title" aria-live="polite">
-          <i class="fas fa-seedling"></i> Growth Stage Detection (YOLOv8)
+      <!-- Analyzed Image + Bounding Boxes -->
+      {% if image_b64 %}
+      <div class="result-img-container" style="position: relative; margin-bottom: 2rem;">
+        <div id="original-image-view" style="position: relative;">
+          <img
+            id="result-img"
+            alt="Analyzed Crop Image"
+            src="data:image/jpeg;base64,{{ image_b64 }}"
+            class="result-img"
+          />
+          <svg
+            id="bbox-svg"
+            class="result-svg"
+            style="position: absolute; top: 0; left: 0;"
+            width="410"
+            height="{{ (img_shape.height|default(1) / img_shape.width|default(1) * 410)|int }}"
+          ></svg>
+        </div>
+
+        {% if grad_cam_image_b64 %}
+        <div id="grad-cam-view" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none;">
+          <img
+            id="grad-cam-img"
+            alt="Grad-CAM Heatmap"
+            src="data:image/jpeg;base64,{{ grad_cam_image_b64 }}"
+            class="result-img"
+            style="border: 2px solid var(--ai-blue);"
+          />
+        </div>
+        <button
+          id="toggle-ai-focus"
+          class="btn btn-secondary"
+          style="
+            position: absolute; bottom: 15px; left: 50%;
+            transform: translateX(-50%); z-index: 10;
+            padding: 0.6rem 1.2rem; font-size: 0.85rem;
+            border-radius: 50px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            background: var(--card-bg); color: var(--deep-forest);
+            border: 1px solid var(--card-border); transition: var(--transition-smooth);
+          "
+        >
+          <i class="fas fa-eye"></i> Show AI Focus
+        </button>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <!-- Disease Classification -->
+      <div class="result-card">
+        <h2 class="results-section-title">
+          <i class="fas fa-stethoscope"></i> Disease Analysis
+        </h2>
+        
+        <div class="results-list">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+            <div>
+              <b style="font-size: 1.1rem;">Detected Issue:</b> 
+              <span style="font-size: 1.2rem; color: var(--emerald-green); font-weight: 700; margin-left: 0.5rem;">
+                {{ disease.predicted_class|default("Unknown") }}
+              </span>
+            </div>
+            
+            {% set d_issue = disease.predicted_class|default("Unknown") %}
+            {% set d_conf = (disease.confidence|default(0)|float * 100) %}
+            
+            <div class="severity-wrapper">
+              {% if 'Healthy' in d_issue %}
+                <span class="severity-pill severity-healthy"><i class="fas fa-check-circle"></i> Healthy</span>
+              {% else %}
+                {% if d_conf > 70 %}
+                  <span class="severity-pill severity-high"><i class="fas fa-exclamation-triangle"></i> High Severity</span>
+                {% elif d_conf >= 40 %}
+                  <span class="severity-pill severity-moderate"><i class="fas fa-exclamation-circle"></i> Moderate Severity</span>
+                {% else %}
+                  <span class="severity-pill" style="background: #e2e8f0; color: #475569; border: 1px solid #cbd5e1;"><i class="fas fa-info-circle"></i> Low Severity</span>
+                {% endif %}
+              {% endif %}
+            </div>
+          </div>
+          
+          <div class="confidence-meter-container">
+            <div class="meter-label-wrap">
+              <span>Model Confidence</span>
+              <span>{{ d_conf|round(1) }}%</span>
+            </div>
+            <div class="confidence-progress-bg">
+              <div class="confidence-progress-fill {% if d_conf > 75 %}meter-green{% elif d_conf > 50 %}meter-yellow{% else %}meter-red{% endif %}" style="width: {{ d_conf }}%;"></div>
+            </div>
+            <p style="margin-top: 0.8rem; color: var(--text-muted); font-size: 0.85rem; line-height: 1.4;">
+              <i class="fas fa-info-circle"></i> This score represents how certain the AI is about this specific disease pattern.
+            </p>
+          </div>
+
+          <div class="health-metrics" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1rem;">
+            <div class="metric-item">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <b>Overall Health</b>
+                <span>{{ disease.health_score|default(0)|float|round(2) }}%</span>
+              </div>
+              <div class="health-bar">
+                <div class="health-fill" style="width: {{ disease.health_score|default(0)|float|round(0) }}%;"></div>
+              </div>
+            </div>
+
+            {% if results.disease_severity is defined and results.disease_severity %}
+            <div class="metric-item">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <b>Disease Impact</b>
+                <span>{{ results.disease_severity|float|round(2) }}%</span>
+              </div>
+              <div class="health-bar" style="background: rgba(0,0,0,0.05);">
+                <div class="health-fill" style="width: {{ results.disease_severity|float|round(0) }}%; background: linear-gradient(90deg, #ff4e50, #f9d423); box-shadow: 0 0 10px rgba(255, 78, 80, 0.3);"></div>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <details style="margin-top: 1.5rem;">
+          <summary style="font-weight: 600; color: var(--emerald-green); cursor: pointer; font-size: 0.9rem;">
+            <i class="fas fa-chart-pie"></i> View Detailed Probabilities
+          </summary>
+          <table class="results-table" style="margin-top: 1rem;">
+            <tr>
+              <th>Disease Class</th>
+              <th>Probability</th>
+            </tr>
+            {% for cname, prob in disease_confidences.items() %}
+            <tr>
+              <td>{{ cname }}</td>
+              <td>{{ (prob|default(0)|float * 100)|round(2) }}%</td>
+            </tr>
+            {% endfor %}
+          </table>
+        </details>
+      </div>
+
+      <!-- Growth Stage Detection -->
+      <div class="result-card">
+        <h2 class="results-section-title">
+          <i class="fas fa-seedling"></i> Growth Stage Recognition
         </h2>
         {% if growth.main_class %}
-        <ul class="results-list">
-          <li>
-            <b>Main Stage:</b>
-            {{ growth.main_class }}
-            <span style="color:var(--text-muted);">(Confidence: {{ growth.confidence|default(0)|float|round(2) }})</span>
-          </li>
-        </ul>
-        <table class="results-table reveal-stagger">
-          <tr class="reveal reveal-fade-in">
-            <th>Stage Class</th>
-            <th>Confidence</th>
-            <th>BBox</th>
-          </tr>
-          {% for box in growth_boxes %}
-          <tr class="reveal reveal-fade-in">
-            <td>{{ box.class_name }}</td>
-            <td>{{ box.confidence|default(0)|float|round(3) }}</td>
-            <td class="bbox-cell">
-              [{{ box.bbox[0]|int }},<br>
-              {{ box.bbox[1]|int }},<br>
-              {{ box.bbox[2]|int }},<br>
-              {{ box.bbox[3]|int }}]
-            </td>
-          </tr>
-          {% endfor %}
-        </table>
+        <div class="results-list">
+          <div style="margin-bottom: 1.5rem;">
+            <b style="font-size: 1.1rem;">Detected Stage:</b>
+            <span style="font-size: 1.2rem; color: var(--emerald-green); font-weight: 700; margin-left: 0.5rem;">{{ growth.main_class }}</span>
+          </div>
+
+          <div class="confidence-meter-container">
+            <div class="meter-label-wrap">
+              <span>Detection Confidence</span>
+              {% set g_conf = (growth.confidence|default(0)|float * 100) %}
+              <span>{{ g_conf|round(1) }}%</span>
+            </div>
+            <div class="confidence-progress-bg">
+              <div class="confidence-progress-fill {% if g_conf > 75 %}meter-green{% elif g_conf > 50 %}meter-yellow{% else %}meter-red{% endif %}" style="width: {{ g_conf }}%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <details style="margin-top: 1rem;">
+          <summary style="font-weight: 600; color: var(--emerald-green); cursor: pointer; font-size: 0.9rem;">
+            <i class="fas fa-crosshairs"></i> View Object Detection Details
+          </summary>
+          <table class="results-table" style="margin-top: 1rem;">
+            <tr>
+              <th>Detected Object</th>
+              <th>Confidence</th>
+              <th>Location (BBox)</th>
+            </tr>
+            {% for box in growth_boxes %}
+            <tr>
+              <td>{{ box.class_name }}</td>
+              <td>{{ (box.confidence|default(0)|float * 100)|round(1) }}%</td>
+              <td style="font-family: monospace; font-size: 0.8rem;">[{{ box.bbox[0]|int }}, {{ box.bbox[1]|int }}, {{ box.bbox[2]|int }}, {{ box.bbox[3]|int }}]</td>
+            </tr>
+            {% endfor %}
+          </table>
+        </details>
         {% else %}
-        <p style="margin-bottom: 2rem; color: var(--text-muted);">No cotton growth stage detected.</p>
+        <p style="color: var(--text-muted); padding: 1rem; background: rgba(0,0,0,0.02); border-radius: 12px; border: 1px dashed var(--card-border);">
+          <i class="fas fa-info-circle"></i> No specific growth stages were clearly identified in this image.
+        </p>
         {% endif %}
       </section>
 
@@ -196,7 +347,8 @@
         </h2>
 
         <!-- Growth Stage Timeline -->
-        <div class="growth-timeline" style="
+        <div class="growth-ti
+        meline" style="
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -569,16 +721,36 @@
       </section>
       {% endif %}
 
-
-      <div class="result-card" role="region" aria-label="Recommendations">
+      <!-- Recommendations -->
+      <div class="result-card">
         <h2 class="results-section-title" data-i18n="res_recs">
           <i class="fas fa-lightbulb"></i> Recommendations
         </h2>
-        <ul class="results-list reveal-stagger">
+        <div class="recommendations-grid reveal-stagger">
           {% for rec in results.recommendations|default([]) %}
-          <li class="reveal reveal-slide-left">{{ rec }}</li>
+          <div class="rec-card reveal reveal-slide-left">
+            <div class="rec-icon">
+              {% if 'water' in rec.lower() or 'irrigation' in rec.lower() %}
+                <i class="fas fa-tint"></i>
+              {% elif 'fertilizer' in rec.lower() or 'nutrient' in rec.lower() %}
+                <i class="fas fa-vial"></i>
+              {% elif 'pesticide' in rec.lower() or 'insect' in rec.lower() or 'fungicide' in rec.lower() or 'spray' in rec.lower() %}
+                <i class="fas fa-spray-can"></i>
+              {% elif 'harvest' in rec.lower() %}
+                <i class="fas fa-tractor"></i>
+              {% elif 'consult' in rec.lower() or 'expert' in rec.lower() %}
+                <i class="fas fa-user-tie"></i>
+              {% else %}
+                <i class="fas fa-leaf"></i>
+              {% endif %}
+            </div>
+            <div class="rec-content">
+              <h4>{% if 'water' in rec.lower() or 'irrigation' in rec.lower() %}Watering Tip{% elif 'fertilizer' in rec.lower() or 'nutrient' in rec.lower() %}Nutrient Management{% elif 'pesticide' in rec.lower() or 'insect' in rec.lower() or 'fungicide' in rec.lower() %}Crop Protection{% else %}General Advice{% endif %}</h4>
+              <p>{{ rec }}</p>
+            </div>
+          </div>
           {% endfor %}
-        </ul>
+        </div>
       </div>
 
       <!-- Context-Aware Treatment & Management Guide -->
@@ -857,11 +1029,17 @@
           <p style="margin: 0 0 1rem 0; font-size: 0.88rem; color: var(--text-muted);">The deep learning object detection model recognized multiple cotton elements in the uploaded frame:</p>
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
             {% for box in growth.boxes %}
-            <div style="background: white; border: 1px solid var(--card-border); border-radius: 8px; padding: 0.8rem; display: flex; align-items: center; gap: 0.8rem; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
+            <div style="background: white; border: 1px solid var(--card-border); border-radius: 8px; padding: 1rem; display: flex; align-items: center; gap: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
               <span style="font-size: 1.2rem; color: #10b981;">🌿</span>
               <div>
                 <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-main);">{{ box.class_name }}</div>
                 <div style="font-size: 0.8rem; color: var(--text-muted);">Confidence: <b>{{ (box.confidence * 100)|round(1) }}%</b></div>
+                <div class="bbox-coordinates">
+                    <span>X1: {{ box.bbox[0]|int }}</span>
+                    <span>Y1: {{ box.bbox[1]|int }}</span>
+                    <span>X2: {{ box.bbox[2]|int }}</span>
+                    <span>Y2: {{ box.bbox[3]|int }}</span>
+                </div>
               </div>
             </div>
             {% endfor %}
@@ -890,7 +1068,22 @@
         <div id="agri-scan-history-list" class="agri-scan-history-list"></div>
       </div>
 
-      <!-- Footer Actions -->
+      <!-- 
+        Analysis Action Controls
+        
+        Provides quick access to post-analysis workflows:
+        - Voice assistant playback
+        - PDF report export
+        - Future analysis actions
+        
+        Design System Improvements:
+        - Consistent spacing
+        - Unified button sizing
+        - Improved visual hierarchy
+        - Better icon alignment
+        - Consistent hover feedback
+     -->
+
       <div style="display:flex; justify-content:flex-end; gap:1.2rem; margin-top:2rem; margin-bottom:2rem; flex-wrap:wrap;">
         <button onclick="readInsights()" class="btn-action btn-action-primary" data-i18n="res_voice" aria-label="Read analysis insights aloud using voice assistant">
           <i class="fas fa-volume-up"></i> Voice Assistant

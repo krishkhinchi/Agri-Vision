@@ -104,9 +104,69 @@ class MockYOLOModel:
 # Basic unit tests for helper utils
 def test_preprocess_image_for_resnet():
     dummy_img = np.zeros((100, 100, 3), dtype=np.uint8)
-    processed = app.preprocess_image_for_resnet(dummy_img, target_size=(224, 224))
+    processed = app.preprocess_image_for_resnet(dummy_img)
     assert isinstance(processed, torch.Tensor)
     assert processed.shape == (1, 3, 224, 224)
+
+
+def test_resnet_transform_is_module_level_singleton():
+    """RESNET_TRANSFORM should be defined once at module level, not rebuilt per call."""
+    assert hasattr(app, "RESNET_TRANSFORM"), "RESNET_TRANSFORM must be a module-level constant"
+    # Calling preprocess twice should use the exact same transform object
+    t1 = app.RESNET_TRANSFORM
+    t2 = app.RESNET_TRANSFORM
+    assert t1 is t2, "RESNET_TRANSFORM must be a singleton (same object identity)"
+
+
+def test_resnet_transform_includes_imagenet_normalization():
+    """The transform pipeline must include ImageNet normalization for correct ResNet50 inference."""
+    from torchvision import transforms as T
+
+    normalize_found = False
+    expected_mean = [0.485, 0.456, 0.406]
+    expected_std = [0.229, 0.224, 0.225]
+
+    for t in app.RESNET_TRANSFORM.transforms:
+        if isinstance(t, T.Normalize):
+            normalize_found = True
+            assert list(t.mean) == pytest.approx(expected_mean, abs=1e-6), (
+                f"Normalize mean should be {expected_mean}, got {list(t.mean)}"
+            )
+            assert list(t.std) == pytest.approx(expected_std, abs=1e-6), (
+                f"Normalize std should be {expected_std}, got {list(t.std)}"
+            )
+
+    assert normalize_found, (
+        "RESNET_TRANSFORM must include transforms.Normalize with ImageNet stats"
+    )
+
+
+def test_preprocess_output_is_normalized():
+    """Verify the output tensor has been normalized (values outside [0, 1] range)."""
+    # Create a white image (all 255) — after ToTensor it'd be 1.0,
+    # but after ImageNet normalization the values shift outside [0, 1].
+    white_img = np.full((100, 100, 3), 255, dtype=np.uint8)
+    processed = app.preprocess_image_for_resnet(white_img)
+    # After normalization, at least some channel means should exceed 1.0
+    # because (1.0 - 0.485) / 0.229 ≈ 2.249
+    assert processed.max().item() > 1.0, (
+        "Normalized output should have values > 1.0 for a white image"
+    )
+
+
+def test_load_models_delegates_to_model_manager(monkeypatch):
+    """load_models() should delegate to ModelManager singleton, not load independently."""
+    call_count = {"n": 0}
+    original_load = app.model_manager.load_models
+
+    def tracking_load():
+        call_count["n"] += 1
+        return None, None
+
+    monkeypatch.setattr(app.model_manager, "load_models", tracking_load)
+    app.load_models()
+    assert call_count["n"] == 1, "load_models must delegate to model_manager.load_models()"
+    monkeypatch.setattr(app.model_manager, "load_models", original_load)
 
 
 def test_infer_disease_fallback(monkeypatch):

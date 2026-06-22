@@ -27,8 +27,8 @@
 
 <div style="
     margin-top: 140px;
-    margin-bottom: 80px;
-    padding: 0 20px;
+    margin-bottom: 100px;
+    padding: 0 32px;
 ">
 
     <!-- =========================================================
@@ -48,8 +48,16 @@
     ">
         <h1 style="
             font-weight: 700;
+ improve-typography-content-spacing
+            font-size: 3rem;
+            line-height: 1.15;
+            letter-spacing: -0.03em;
+            margin-bottom: 20px;
+        ">
+
             margin-bottom: 15px;
         " data-i18n="tut_title">
+       main
             Farming Video Tutorials
         </h1>
 
@@ -57,9 +65,18 @@
             color: var(--text-color, #b0b0b0);
             max-width: 700px;
             margin: auto;
+ improve-typography-content-spacing
+            line-height: 1.9;
+            font-size: 1.08rem;
+            letter-spacing: 0.01em;
+        ">
+
             line-height: 1.7;
         " data-i18n="tut_desc">
+ main
             Learn crop disease detection, prevention methods, and smart farming techniques through curated tutorials.
+            <br><br>
+            Explore practical tutorials covering disease identification, prevention strategies, sustainable farming practices, and modern agricultural technologies.
         </p>
     </div>
 
@@ -98,7 +115,7 @@
         display: flex;
         flex-wrap: wrap;
         justify-content: center;
-        gap: 35px;
+        gap: 40px;
     ">
 
         <!-- =========================================================
@@ -107,37 +124,65 @@
         ========================================================== -->
 
         <!-- Card 1 -->
-        <div style="
+        <div 
+            onmouseover="this.style.transform='translateY(-6px)'; this.style.boxShadow='0 16px 36px rgba(0,0,0,0.25)'"
+            onmouseout="this.style.transform='translateY(0px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.15)'"
+        
+            style="
             width: 350px;
             border-radius: 22px;
+            display: flex;
+            flex-direction: column;
             overflow: hidden;
             background: rgba(255,255,255,0.06);
             backdrop-filter: blur(10px);
             box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-            transition: 0.3s ease;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
         ">
 
             <iframe
                 width="100%"
-                height="220"
+                height="240"
                 src="https://www.youtube.com/embed/gjMIh19zH7k"
                 title="Tomato Disease Tutorial"
                 frameborder="0"
                 allowfullscreen>
             </iframe>
 
-            <div style="padding: 24px;">
+            <div style="
+                padding: 28px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                flex: 1;
+            ">
+
+            <span style="
+                color: #2e8b57;
+                font-size: 0.8rem;
+                font-weight: 600;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            ">
+                Tutorial
+            </span>
 
                 <h3 style="
-                    margin-bottom: 14px;
+                    margin-bottom: 10px;
                     font-weight: 600;
+                    font-size: 1.35rem;
+                    line-height: 1.35;
+                    letter-spacing: -0.02em;
                 ">
                     Tomato Leaf Disease Detection
                 </h3>
 
                 <p style="
                     color: var(--text-color, #cfcfcf);
-                    line-height: 1.7;
+                    line-height: 1.9;
+                    letter-spacing: 0.01em;
+                    font-size: 1rem;
                     margin-bottom: 0;
                 ">
                     Learn how to identify tomato leaf diseases early and protect crops effectively.
@@ -152,37 +197,66 @@
         ========================================================== -->
 
         <!-- Card 2 -->
-        <div style="
+        <div 
+
+            onmouseover="this.style.transform='translateY(-6px)'; this.style.boxShadow='0 16px 36px rgba(0,0,0,0.25)'"
+            onmouseout="this.style.transform='translateY(0px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.15)'"
+            
+            style="
             width: 350px;
             border-radius: 22px;
+            display: flex;
+            flex-direction: column;
             overflow: hidden;
             background: rgba(255,255,255,0.06);
             backdrop-filter: blur(10px);
             box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-            transition: 0.3s ease;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
         ">
 
             <iframe
                 width="100%"
-                height="220"
+                height="240"
                 src="https://www.youtube.com/embed/SZcB2nHkjk4"
                 title="Rice Disease Tutorial"
                 frameborder="0"
                 allowfullscreen>
             </iframe>
 
-            <div style="padding: 24px;">
+            <div style="
+                padding: 28px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                flex: 1;
+            ">
+
+            <span style="
+                color: #2e8b57;
+                font-size: 0.8rem;
+                font-weight: 600;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            ">
+                Tutorial
+            </span>
 
                 <h3 style="
-                    margin-bottom: 14px;
+                    margin-bottom: 10px;
                     font-weight: 600;
+                    font-size: 1.35rem;
+                    line-height: 1.35;
+                    letter-spacing: -0.02em;
                 ">
                     Rice Blast Disease Management
                 </h3>
 
-                <p style="
+               <p style="
                     color: var(--text-color, #cfcfcf);
-                    line-height: 1.7;
+                    line-height: 1.9;
+                    letter-spacing: 0.01em;
+                    font-size: 1rem;
                     margin-bottom: 0;
                 ">
                     Understand symptoms, prevention methods, and modern crop management techniques.
@@ -197,37 +271,66 @@
         ========================================================== -->
 
         <!-- Card 3 -->
-        <div style="
+        <div 
+            onmouseover="this.style.transform='translateY(-6px)'; this.style.boxShadow='0 16px 36px rgba(0,0,0,0.25)'"
+            onmouseout="this.style.transform='translateY(0px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.15)'"
+            
+            style="
             width: 350px;
             border-radius: 22px;
+            display: flex;
+            flex-direction: column;
             overflow: hidden;
             background: rgba(255,255,255,0.06);
             backdrop-filter: blur(10px);
             box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-            transition: 0.3s ease;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
         ">
 
             <iframe
                 width="100%"
-                height="220"
+                height="240"
                 src="https://www.youtube.com/embed/mkEsLdNKlPM"
                 title="Organic Farming Tutorial"
                 frameborder="0"
                 allowfullscreen>
             </iframe>
 
-            <div style="padding: 24px;">
+            <div style="
+                padding: 28px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                flex: 1;
+            ">
+
+            <span style="
+                color: #2e8b57;
+                font-size: 0.8rem;
+                font-weight: 600;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            ">
+                Tutorial
+            </span>
+            
 
                 <h3 style="
-                    margin-bottom: 14px;
+                    margin-bottom: 10px;
                     font-weight: 600;
+                    font-size: 1.35rem;
+                    line-height: 1.35;
+                    letter-spacing: -0.02em;
                 ">
                     Organic Farming Tips
                 </h3>
 
                 <p style="
                     color: var(--text-color, #cfcfcf);
-                    line-height: 1.7;
+                    line-height: 1.9;
+                    letter-spacing: 0.01em;
+                    font-size: 1rem;
                     margin-bottom: 0;
                 ">
                     Explore sustainable farming practices and improve long-term soil health naturally.

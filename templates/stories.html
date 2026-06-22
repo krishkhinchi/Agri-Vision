@@ -156,6 +156,7 @@
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 28px;
+        align-items: stretch;
         position: relative;
         z-index: 1;
         max-width: 1140px;
@@ -181,7 +182,10 @@
         padding: 32px 28px 28px;
         display: flex;
         flex-direction: column;
+        justify-content: space-between;
         gap: 16px;
+        min-height: 320px;
+        height: 100%;
         transition: transform 0.32s cubic-bezier(0.34,1.56,0.64,1),
                     box-shadow 0.32s ease,
                     border-color 0.32s ease;
@@ -262,6 +266,7 @@
         width: 54px;
         height: 54px;
         border-radius: 50%;
+        flex-shrink: 0;
         background: linear-gradient(
             135deg,
             rgba(46,139,87,0.16) 0%,
@@ -303,7 +308,8 @@
     .story-meta {
         display: flex;
         flex-direction: column;
-        gap: 3px;
+        gap: 6px;
+        min-height: 56px;
     }
 
     .story-name {
@@ -400,13 +406,13 @@
     .story-quote {
         font-size: 0.91rem;
         line-height: 1.7;
-        color: #5c5c5c;;
+        color: #5c5c5c;
         font-style: italic;
         position: relative;
         padding-left: 18px;
         margin: 0;
+        margin-top: auto;
         transition: color 0.3s ease;
-
     }
 
     /* Left accent bar — mirrors feature-card icon accent */
@@ -637,6 +643,35 @@
                 "Agri-Vision helped me monitor crop health in real time and improved my farming decisions."
             </p>
         </div>
+
+        
+        <!-- Farmer 7 — Manpreet Singh -->
+        <div class="story-card">
+            <div class="story-avatar">
+                MS
+            </div>
+
+            <div class="story-meta">
+                <span class="story-name">Manpreet Singh</span>
+                <span class="story-location">
+                    <i class="fas fa-map-marker-alt"></i>
+                    Punjab
+                </span>
+            </div>
+
+            <div class="story-yield-badge">
+                <span class="yield-icon"><i class="fas fa-arrow-up"></i></span>
+                <span class="yield-label">Yield:</span>
+                <span class="yield-value">+38%</span>
+            </div>
+
+            <hr class="story-divider">
+
+            <p class="story-quote">
+                "Agri-Vision helped me identify crop stress and disease symptoms much earlier than traditional field inspections."
+            </p>
+        </div>
+
 
     </div>
 </section>
